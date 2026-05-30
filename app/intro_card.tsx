@@ -128,28 +128,32 @@ const styles = StyleSheet.create({
     height: '100%',
   },
   overlay: {
-    ...StyleSheet.absoluteFillObject, // covers the full screen as a sibling
+    ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0, 0, 0, 0.45)',
   },
   container: {
     flex: 1,
-    justifyContent: 'space-between',
+    // Removed justifyContent: 'space-between' so flex rules handle positioning properly
     paddingHorizontal: 24,
     paddingBottom: 20,
   },
   topSection: {
-    flex: 1,
     alignItems: 'center',
-    marginTop: 160,
+    // Reduced slightly from 160 so the logo doesn't clash with the content on smaller screens
+    marginTop: 60, 
+    marginBottom: 20,
   },
   logo: {
     width: 100,
     height: 100,
   },
   bottomSection: {
+    flex: 1, // Keeps the ScrollView wrapper constrained to the visible screen limits
     width: '100%',
   },
   bottomScrollContent: {
+    flexGrow: 1, // Crucial: allows content to fill the ScrollView height
+    justifyContent: 'flex-end', // Pushes all your text, dots, and buttons back down to the bottom
     alignItems: 'center',
     paddingBottom: 10,
   },

@@ -29,8 +29,13 @@ describe('Parachute Activity Full App Flow - Production Auth & Activity Bypass',
     await waitFor(element(by.text('Be your path'))).toBeVisible().withTimeout(6000);
     await new Promise(resolve => setTimeout(resolve, 800));
 
-    // Scroll to the bottom to ensure the Continue button is within the viewport
-    await element(by.id('bottomScrollView')).scrollTo('bottom');
+    // Canonical Detox Way: Scroll down inside the ScrollView ONLY if the button isn't visible yet
+    await waitFor(element(by.id('continueButton')))
+    .toBeVisible()
+    .whileElement(by.id('bottomScrollView'))
+    .scroll(100, 'down');
+
+    // Now safely tap it
     await element(by.id('continueButton')).tap();
 
     // ==========================================
