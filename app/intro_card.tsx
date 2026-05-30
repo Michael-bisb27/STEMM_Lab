@@ -128,19 +128,19 @@ const styles = StyleSheet.create({
     height: '100%',
   },
   overlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFillObject, // covers the full screen as a sibling
     backgroundColor: 'rgba(0, 0, 0, 0.45)',
   },
   container: {
     flex: 1,
-    // Removed justifyContent: 'space-between' so flex rules handle positioning properly
+    justifyContent: 'space-between',
     paddingHorizontal: 24,
     paddingBottom: 20,
   },
   topSection: {
+    // Remove flex: 1 so it doesn't greedily push everything down
     alignItems: 'center',
-    // Reduced slightly from 160 so the logo doesn't clash with the content on smaller screens
-    marginTop: 60, 
+    marginTop: 80, // Reduced from 160 to give the bottom elements breathing room
     marginBottom: 20,
   },
   logo: {
@@ -148,14 +148,13 @@ const styles = StyleSheet.create({
     height: 100,
   },
   bottomSection: {
-    flex: 1, // Keeps the ScrollView wrapper constrained to the visible screen limits
+    flex: 1, // CRITICAL: This forces the container to stay within the viewport limits
     width: '100%',
   },
   bottomScrollContent: {
-    flexGrow: 1, // Crucial: allows content to fill the ScrollView height
-    justifyContent: 'flex-end', // Pushes all your text, dots, and buttons back down to the bottom
     alignItems: 'center',
-    paddingBottom: 10,
+    paddingBottom: 20,
+    flexGrow: 1, // Ensures content can layout properly inside the bounded ScrollView
   },
   pathIcon: {
     width: 50,

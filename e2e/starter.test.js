@@ -18,10 +18,16 @@ describe('Parachute Activity Full App Flow - Production Auth & Activity Bypass',
     // Wait for the first intro screen to appear
     await waitFor(element(by.text('Guide your study'))).toBeVisible().withTimeout(5000);
 
+    // Added a 2-second wait before clicking dot 2
+    await new Promise(resolve => setTimeout(resolve, 2000));
+
     // Tap dot index 1 to navigate to intro screen 2
     await element(by.id('intro-dot-1')).tap();
     await new Promise(resolve => setTimeout(resolve, 600)); // let expo-router settle
     await waitFor(element(by.text('Fun Experiments'))).toBeVisible().withTimeout(6000);
+
+    // Added a 2-second wait before clicking dot 3
+    await new Promise(resolve => setTimeout(resolve, 2000));
 
     // Tap dot index 2 to navigate to intro screen 3
     await element(by.id('intro-dot-2')).tap();

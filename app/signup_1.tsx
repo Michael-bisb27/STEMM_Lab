@@ -250,7 +250,7 @@ export default function SignupOneScreen() {
 
               <View style={styles.haveAccountContainer}>
                 <Text style={styles.haveAccountText}>*Have an account? </Text>
-                <TouchableOpacity onPress={() => router.push('/signin')}>
+                <TouchableOpacity testID="goToSignInButton" onPress={() => router.push('/signin')}>
                   <Text style={styles.signInLink}>Sign In</Text>
                 </TouchableOpacity>
               </View>
