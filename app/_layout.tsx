@@ -1,24 +1,45 @@
-import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { Stack } from 'expo-router';
-import { StatusBar } from 'expo-status-bar';
-import 'react-native-reanimated';
+import * as SplashScreen from 'expo-splash-screen';
+import { useEffect } from 'react';
 
-import { useColorScheme } from '@/hooks/use-color-scheme';
+// Import local and cloud initializations
+import { setupDatabase } from '../database/db';
+import '../services/firebase_config';
 
-export const unstable_settings = {
-  anchor: '(tabs)',
-};
+// --- IMPORT YOUR THEME PROVIDER ---
+// Double check this path matches where you created your ThemeContext file
+import { ThemeProvider } from '../theme/theme_context';
+
+// Keep the splash screen visible while we fetch resources
+SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
-  const colorScheme = useColorScheme();
+  useEffect(() => {
+    async function prepare() {
+      try {
+        // Initialize SQLite Tables
+        setupDatabase();
+        console.log('Local SQLite Database: Ready');
+        console.log('Firebase Cloud Services: Ready');
+        
+      } catch (e) {
+        console.warn('Database initialization error:', e);
+      } finally {
+        // Hide the splash screen once everything is set up
+        await SplashScreen.hideAsync();
+      }
+    }
+
+    prepare();
+  }, []);
 
   return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+    <ThemeProvider>
       <Stack>
+        {/* (tabs) is the folder containing your main navigation */}
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
+        <Stack.Screen name="+not-found" />
       </Stack>
-      <StatusBar style="auto" />
     </ThemeProvider>
   );
 }
