@@ -54,18 +54,15 @@ export default function ParachuteReadyScreen() {
     const router = useRouter();
     const [fontsLoaded] = useFonts({ BalsamiqSans_400Regular, BalsamiqSans_700Bold });
 
-    // --- CONSUME GLOBAL THEME CONTEXT ---
     const { isDarkMode } = useTheme();
     const currentTheme = isDarkMode ? themes.dark : themes.light;
 
-    // --- STATES ---
     const [activity, setActivity] = useState<any>(null);
     const [loading, setLoading] = useState(true);
     const [isStarting, setIsStarting] = useState(false);
     const [teamMemberCount, setTeamMemberCount] = useState(0);
     const [teamId, setTeamId] = useState<string | null>(null);
     
-    // Core Checklist States
     const [isUserPrepared, setIsUserPrepared] = useState(false);
     const [isSafeSpace, setIsSafeSpace] = useState(false);
     const [materialsChecked, setMaterialsChecked] = useState({
@@ -77,12 +74,10 @@ export default function ParachuteReadyScreen() {
         tape: false
     });
 
-    // Sensor Verification States
     const [sensorCalibrated, setSensorCalibrated] = useState(false);
     const [accelerometerData, setAccelerometerData] = useState({ x: 0, y: 0, z: 0 });
     const subscription = useRef<any>(null);
 
-    // --- 1. INITIAL DATA FETCH & SENSOR INITIALIZATION ---
     useEffect(() => {
         const fetchData = async () => {
             try {
@@ -136,7 +131,6 @@ export default function ParachuteReadyScreen() {
         };
     }, []);
 
-    // --- 2. LOG AND START CHALLENGE ---
     const handleStartChallenge = async () => {
         if (!teamId) return Alert.alert("Error", "No Team Session found.");
         
@@ -152,10 +146,9 @@ export default function ParachuteReadyScreen() {
             const location = await Location.getCurrentPositionAsync({});
             const { latitude, longitude } = location.coords;
 
-            // Sudirman/Senayan Geofence Range Check
             const isWithinZone = 
-                latitude >= -6.23 && latitude <= -6.19 && 
-                longitude >= 106.79 && longitude <= 106.82;
+                latitude >= -6.25 && latitude <= -6.18 &&  
+                longitude >= 106.78 && longitude <= 106.83;
 
             if (!isWithinZone) {
                 Alert.alert("Outside Zone", "This activity must be performed within the Senayan/Sudirman school area.");
@@ -192,7 +185,6 @@ export default function ParachuteReadyScreen() {
         }
     };
 
-    // --- 3. DYNAMIC CHECKLIST & READINESS PROGRESS METRICS ---
     const toggleMaterial = (key: keyof typeof materialsChecked) => {
         LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
         setMaterialsChecked(prev => ({ ...prev, [key]: !prev[key] }));
@@ -200,7 +192,6 @@ export default function ParachuteReadyScreen() {
 
     const allMaterialsSelected = Object.values(materialsChecked).every(Boolean);
     
-    // Progress calculation based on four high-level criteria
     const completedTasks = [
         allMaterialsSelected, 
         sensorCalibrated, 
@@ -216,7 +207,6 @@ export default function ParachuteReadyScreen() {
 
     if (!fontsLoaded || loading) {
         return (
-            /* Adaptive container loader layout to match theme state */
             <View style={[styles.loader, { backgroundColor: isDarkMode ? '#141414' : '#F3F0E9' }]}>
                 <ActivityIndicator size="large" color="#00E5FF" />
             </View>
@@ -224,7 +214,6 @@ export default function ParachuteReadyScreen() {
     }
 
     return (
-        /* Dynamic Theme Background Image Swap */
         <ImageBackground source={currentTheme.backgroundImage} style={styles.background}>
             <Stack.Screen options={{ headerShown: false }} />
             
@@ -252,15 +241,16 @@ export default function ParachuteReadyScreen() {
             </View>
 
             <SafeAreaView style={styles.safeArea} edges={['left', 'right', 'bottom']}>
-                <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.mainScroll}>
+                {/* 🌟 ADDED testID FOR CORE SCROLL VIEW */}
+                <ScrollView testID="readyScrollView" showsVerticalScrollIndicator={false} contentContainerStyle={styles.mainScroll}>
                     
-                    {/* Title Section (Dynamic colors applied) */}
-                    <View style={styles.titleSection}>
+                    {/* Title Section */}
+                    <View testID="readyTitleSection" style={styles.titleSection}>
                         <Text style={[styles.phaseTag, { color: currentTheme.textColor }]}>Setup Phase:</Text>
                         <Text style={[styles.activityName, { color: currentTheme.textColor }]}>{activity?.activityName || "Parachute Drop Challenge"}</Text>
                     </View>
 
-                    {/* Instruction overview box remains safe static white block */}
+                    {/* Challenge Instructions */}
                     <View style={styles.overviewBox}>
                         <View style={styles.overviewTextContainer}>
                             <Text style={styles.instructionHeading}>Challenge Instructions</Text>
@@ -275,11 +265,10 @@ export default function ParachuteReadyScreen() {
                         </View>
                     </View>
 
-                    {/* Dynamic section header color applied */}
-                    <Text style={[styles.checkpointHeadingUnderlined, { color: currentTheme.textColor }]}>Readiness Checklist</Text>
+                    {/* 🌟 ADDED testID TO THIS PLAIN TEXT COMPONENT */}
+                    <Text testID="readinessHeading" style={[styles.checkpointHeadingUnderlined, { color: currentTheme.textColor }]}>Readiness Checklist</Text>
 
-                    {/* --- CHECK 1: PHYSICAL MATERIALS CHECKLIST --- */}
-                    {/* Kept solid white card frame styles unchanged to ensure high readability */}
+                    {/* --- CHECK 1: MATERIALS GRID --- */}
                     <View style={[styles.checkItem, styles.whiteCheckItem]}>
                         <View style={styles.checkHeader}>
                             <Ionicons 
@@ -290,39 +279,40 @@ export default function ParachuteReadyScreen() {
                         </View>
                         
                         <View style={styles.materialsSubGrid}>
-                            <TouchableOpacity style={styles.subCheckRow} onPress={() => toggleMaterial('toy')}>
+                            {/* 🌟 ADDED INDIVIDUAL MATERIAL testIDs */}
+                            <TouchableOpacity testID="mat-toy" style={styles.subCheckRow} onPress={() => toggleMaterial('toy')}>
                                 <Ionicons name={materialsChecked.toy ? "checkbox-outline" : "square-outline"} size={20} color="#555" />
                                 <Text style={styles.subCheckLabel}> Small toy (e.g. army toy soldier)</Text>
                             </TouchableOpacity>
 
-                            <TouchableOpacity style={styles.subCheckRow} onPress={() => toggleMaterial('surface')}>
+                            <TouchableOpacity testID="mat-surface" style={styles.subCheckRow} onPress={() => toggleMaterial('surface')}>
                                 <Ionicons name={materialsChecked.surface ? "checkbox-outline" : "square-outline"} size={20} color="#555" />
                                 <Text style={styles.subCheckLabel}> Table or elevated surface</Text>
                             </TouchableOpacity>
 
-                            <TouchableOpacity style={styles.subCheckRow} onPress={() => toggleMaterial('canopy')}>
+                            <TouchableOpacity testID="mat-canopy" style={styles.subCheckRow} onPress={() => toggleMaterial('canopy')}>
                                 <Ionicons name={materialsChecked.canopy ? "checkbox-outline" : "square-outline"} size={20} color="#555" />
                                 <Text style={styles.subCheckLabel}> Paper or plastic sheeting</Text>
                             </TouchableOpacity>
 
-                            <TouchableOpacity style={styles.subCheckRow} onPress={() => toggleMaterial('string')}>
+                            <TouchableOpacity testID="mat-string" style={styles.subCheckRow} onPress={() => toggleMaterial('string')}>
                                 <Ionicons name={materialsChecked.string ? "checkbox-outline" : "square-outline"} size={20} color="#555" />
                                 <Text style={styles.subCheckLabel}> String or lightweight twine</Text>
                             </TouchableOpacity>
 
-                            <TouchableOpacity style={styles.subCheckRow} onPress={() => toggleMaterial('scissors')}>
+                            <TouchableOpacity testID="mat-scissors" style={styles.subCheckRow} onPress={() => toggleMaterial('scissors')}>
                                 <Ionicons name={materialsChecked.scissors ? "checkbox-outline" : "square-outline"} size={20} color="#555" />
                                 <Text style={styles.subCheckLabel}> Scissors</Text>
                             </TouchableOpacity>
 
-                            <TouchableOpacity style={styles.subCheckRow} onPress={() => toggleMaterial('tape')}>
+                            <TouchableOpacity testID="mat-tape" style={styles.subCheckRow} onPress={() => toggleMaterial('tape')}>
                                 <Ionicons name={materialsChecked.tape ? "checkbox-outline" : "square-outline"} size={20} color="#555" />
                                 <Text style={styles.subCheckLabel}> Tape</Text>
                             </TouchableOpacity>
                         </View>
                     </View>
 
-                    {/* --- CHECK 2: TELEMETRY SENSOR CHECK (Dynamic borders & colors applied) --- */}
+                    {/* --- CHECK 2: SENSOR TELEMETRY --- */}
                     <View style={[styles.checkItem, { borderColor: isDarkMode ? currentTheme.textColor : '#DDD' }]}>
                         <View style={styles.checkHeader}>
                             <Ionicons 
@@ -337,7 +327,9 @@ export default function ParachuteReadyScreen() {
                                 <Text style={[styles.telemetryText, isDarkMode && { color: currentTheme.textColor }]}>Y-Axis: {accelerometerData.y}g</Text>
                                 <Text style={[styles.telemetryText, isDarkMode && { color: currentTheme.textColor }]}>Z-Axis: {accelerometerData.z}g</Text>
                             </View>
+                            {/* 🌟 ADDED testID TO CALIBRATION BTN */}
                             <TouchableOpacity 
+                                testID="sensorCalibrateButton"
                                 style={[styles.calibrateBtn, sensorCalibrated && styles.calibratedStateBtn]} 
                                 onPress={() => setSensorCalibrated(!sensorCalibrated)}
                             >
@@ -346,16 +338,18 @@ export default function ParachuteReadyScreen() {
                         </View>
                     </View>
 
-                    {/* --- CHECK 3: USER PREPARED (Dynamic borders & colors applied) --- */}
-                    <TouchableOpacity style={[styles.checkItem, { borderColor: isDarkMode ? currentTheme.textColor : '#DDD' }]} onPress={() => setIsUserPrepared(!isUserPrepared)}>
+                    {/* --- CHECK 3: USER PREPARED --- */}
+                    {/* 🌟 ADDED testID TO TEAM ROW */}
+                    <TouchableOpacity testID="teamDeploymentCheck" style={[styles.checkItem, { borderColor: isDarkMode ? currentTheme.textColor : '#DDD' }]} onPress={() => setIsUserPrepared(!isUserPrepared)}>
                         <View style={styles.checkHeader}>
                             <Ionicons name={isUserPrepared ? "checkbox" : "square-outline"} size={24} color={isUserPrepared ? "#00E5FF" : currentTheme.textColor} />
                             <Text style={[styles.checkLabel, { color: currentTheme.textColor }]}>{` Team deployment configured (${teamMemberCount} members)`}</Text>
                         </View>
                     </TouchableOpacity>
 
-                    {/* --- CHECK 4: SAFE AND CLEAR SPACE (Dynamic borders & colors applied) --- */}
-                    <TouchableOpacity style={[styles.checkItem, { borderColor: isDarkMode ? currentTheme.textColor : '#DDD' }]} onPress={() => setIsSafeSpace(!isSafeSpace)}>
+                    {/* --- CHECK 4: SAFE SPACE --- */}
+                    {/* 🌟 ADDED testID TO SAFE SPACE ROW */}
+                    <TouchableOpacity testID="safeSpaceCheck" style={[styles.checkItem, { borderColor: isDarkMode ? currentTheme.textColor : '#DDD' }]} onPress={() => setIsSafeSpace(!isSafeSpace)}>
                         <View style={styles.checkHeader}>
                             <Ionicons name={isSafeSpace ? "checkbox" : "square-outline"} size={24} color={isSafeSpace ? "#00E5FF" : currentTheme.textColor} />
                             <Text style={[styles.checkLabel, { color: currentTheme.textColor }]}> You are in a safe and clear space</Text>
@@ -364,7 +358,9 @@ export default function ParachuteReadyScreen() {
 
                     {/* ACTIVE TRIGGER BUTTON */}
                     {progressPercent === 100 && (
+                        /* 🌟 ADDED testID TO FINAL TRIGGER ACTION */
                         <TouchableOpacity 
+                            testID="startDropSessionButton"
                             style={[styles.startChallengeBtn, isStarting && { opacity: 0.7 }]}
                             onPress={handleStartChallenge}
                             disabled={isStarting}

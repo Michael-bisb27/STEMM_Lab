@@ -87,7 +87,10 @@ const ChallengeCard = React.memo(({ item, isExpanded, onExpand, router }: any) =
     };
 
     return (
-        <TouchableOpacity activeOpacity={0.9} onPress={handleCardPress}>
+        <TouchableOpacity 
+        testID={`challenge-card-${item.id}`}
+        activeOpacity={0.9} 
+        onPress={handleCardPress}>
             <Animated.View style={[
                 styles.cardContainer, 
                 { transform: [{ scale: scaleValue }], zIndex: isExpanded ? 100 : 1 },
@@ -403,6 +406,7 @@ export default function HomeScreen() {
 
             <SafeAreaView style={styles.safeArea} edges={['left', 'right', 'bottom']}>
                 <ScrollView 
+                    testID="homeScrollView" // 🌟 ADDED FOR DETOX SCROLLING
                     showsVerticalScrollIndicator={false} 
                     contentContainerStyle={styles.mainScroll}
                     keyboardShouldPersistTaps="handled"

@@ -98,10 +98,12 @@ export default function ParachuteDropScreen() {
             </View>
 
             <SafeAreaView style={styles.safeArea} edges={['left', 'right', 'bottom']}>
-                <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.mainScroll}>
+                {/* 🌟 ADDED testID HERE FOR MAIN VERTICAL SCROLL */}
+                <ScrollView testID="parachuteScrollView" showsVerticalScrollIndicator={false} contentContainerStyle={styles.mainScroll}>
                     
+                    {/* 🌟 ADDED testID HERE FOR THE SWIPE TARGET */}
                     {/* Title Section (Dynamic text colors applied) */}
-                    <View style={styles.titleSection}>
+                    <View testID="parachuteTitleSection" style={styles.titleSection}>
                         <Text style={[styles.labelItalic, { color: currentTheme.textColor }]}>Activity:</Text>
                         <Text style={[styles.activityName, { color: currentTheme.textColor }]}>{activity?.activityName || "Parachute Drop Challenge"}</Text>
                     </View>
@@ -213,8 +215,10 @@ export default function ParachuteDropScreen() {
                             </View>
                         </ScrollView>
                     </View>
-
+                    
+                    {/* 🌟 ADDED testID HERE TO TARGET BUTTON RELIABLY */}
                     <TouchableOpacity 
+                        testID="getReadyButton"
                         style={styles.startChallengeBtn}
                         onPress={() => router.push('/parachute_ready')}
                     >
