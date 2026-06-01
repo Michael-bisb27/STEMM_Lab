@@ -140,7 +140,7 @@ export default function SignupOneScreen() {
         createdAt: new Date().toISOString(),
       });
 
-      router.push('/singup_2');
+      router.push('/signup_2');
 
     } catch (err) {
       const error = err as { code?: string; message?: string };
@@ -250,7 +250,7 @@ export default function SignupOneScreen() {
 
               <View style={styles.haveAccountContainer}>
                 <Text style={styles.haveAccountText}>*Have an account? </Text>
-                <TouchableOpacity testID="goToSignInButton" onPress={() => router.push('/signin')}>
+                <TouchableOpacity testID="signInButton" onPress={() => router.push('/signin')}>
                   <Text style={styles.signInLink}>Sign In</Text>
                 </TouchableOpacity>
               </View>

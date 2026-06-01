@@ -2,8 +2,6 @@ const { device, element, by, expect, waitFor } = require('detox');
 
 describe('Parachute Activity Full App Flow - Production Auth & Activity Bypass', () => {
   beforeAll(async () => {
-    // Launching a fresh instance without bypassing authentication
-    // Added a launch argument flag to signal the app to deep-route/bypass the live simulation workspace if needed
     await device.launchApp({ 
       newInstance: true,
       launchArgs: { detoxSkipToFinish: true } 
@@ -15,57 +13,73 @@ describe('Parachute Activity Full App Flow - Production Auth & Activity Bypass',
     // ==========================================
     // STEP 1: ONBOARDING CAROUSEL
     // ==========================================
-    // Wait for the first intro screen to appear
-    await waitFor(element(by.text('Guide your study'))).toBeVisible().withTimeout(5000);
-
-    // Added a 2-second wait before clicking dot 2
+    await waitFor(element(by.text('Guide your study'))).toBeVisible().withTimeout(10000);
     await new Promise(resolve => setTimeout(resolve, 2000));
 
-    // Tap dot index 1 to navigate to intro screen 2
     await element(by.id('intro-dot-1')).tap();
-    await new Promise(resolve => setTimeout(resolve, 600)); // let expo-router settle
+    await new Promise(resolve => setTimeout(resolve, 600)); 
     await waitFor(element(by.text('Fun Experiments'))).toBeVisible().withTimeout(6000);
-
-    // Added a 2-second wait before clicking dot 3
     await new Promise(resolve => setTimeout(resolve, 2000));
 
-    // Tap dot index 2 to navigate to intro screen 3
     await element(by.id('intro-dot-2')).tap();
     await new Promise(resolve => setTimeout(resolve, 600));
     await waitFor(element(by.text('Be your path'))).toBeVisible().withTimeout(6000);
     await new Promise(resolve => setTimeout(resolve, 800));
 
-    // Canonical Detox Way: Scroll down inside the ScrollView ONLY if the button isn't visible yet
     await waitFor(element(by.id('continueButton')))
-    .toBeVisible()
-    .whileElement(by.id('bottomScrollView'))
-    .scroll(100, 'down');
+      .toBeVisible()
+      .whileElement(by.id('bottomScrollView'))
+      .scroll(100, 'down');
 
-    // Now safely tap it
     await element(by.id('continueButton')).tap();
 
     // ==========================================
     // STEP 2: ACTUAL USER AUTHENTICATION
     // ==========================================
-    // Target your standard STEMM Lab login inputs
+    // ==========================================
+    // STEP 2: ACTUAL USER AUTHENTICATION
+    // ==========================================
+    await waitFor(element(by.text('🏫 Teacher Portal'))).toExist().withTimeout(5000);
+
+    const signInLink = element(by.id('signInButton'));
+    await waitFor(signInLink)
+      .toBeVisible()
+      .whileElement(by.type('UIScrollView')) 
+      .scroll(100, 'down');
+
+    await signInLink.tap();
+
+    // Define our targets
     const emailInput = element(by.id('emailInput'));
     const passwordInput = element(by.id('passwordInput'));
-    const loginSubmitButton = element(by.id('loginSubmitButton'));
+    const signInSubmitButton = element(by.id('signInSubmitButton'));
+    const outsideArea = element(by.id('signinTitle')); // The title target
 
+    // Wait for the form to load
     await waitFor(emailInput).toBeVisible().withTimeout(5000);
-    
-    // Enter credentials
-    await emailInput.typeText('megan.gale@gmail.com');
-    await passwordInput.typeText('megan.gale1');
-    
-    // Dismiss keyboard if necessary or tap submit directly
-    await loginSubmitButton.tap();
 
+    // 1. Input email
+    await emailInput.typeText('megan.gale@gmail.com');
+
+    // 2. Click outside to drop the textbox
+    await outsideArea.tap();
+    await new Promise(resolve => setTimeout(resolve, 500)); // Brief pause for keyboard collapse animation
+
+    // 3. Input password
+    await passwordInput.typeText('Megan.gale1');
+
+    // 4. Click outside to drop the textbox
+    await outsideArea.tap();
+    await new Promise(resolve => setTimeout(resolve, 500)); // Brief pause for keyboard collapse animation
+
+    // 5. Click sign in
+    await signInSubmitButton.tap();
     // ==========================================
     // STEP 3: DASHBOARD & ACTIVITY ACCESS
     // ==========================================
+    // This should now succeed because the application successfully handles the redirect to /home
     const parachuteCard = element(by.text('Parachute'));
-    await waitFor(parachuteCard).toBeVisible().withTimeout(7000);
+    await waitFor(parachuteCard).toBeVisible().withTimeout(12000); // Bumped slightly to allow for Firebase Network requests
     await parachuteCard.tap();
 
     const getReadyButton = element(by.text('Get Ready'));
@@ -81,31 +95,21 @@ describe('Parachute Activity Full App Flow - Production Auth & Activity Bypass',
     await element(by.id('checklist-box-2')).tap();
     await element(by.id('checklist-box-3')).tap();
 
-    // Scroll to uncover the action button
     await element(by.id('checklistScrollView')).scroll(300, 'down');
     await element(by.text('Start')).tap();
 
     // ==========================================
-    // STEP 5: ACTIVITY FINISH & UPLOAD (BYPASSING LIVE SIMULATION)
+    // STEP 5: ACTIVITY FINISH & UPLOAD
     // ==========================================
-    // Assuming the launchArgs or custom routing pushes the view directly to the summary view
     const uploadPhotoButton = element(by.id('uploadPhotoButton'));
     const commentTextInput = element(by.id('commentTextInput'));
     const finishSubmitButton = element(by.id('finishSubmitButton'));
 
-    // Validate the screen mounted successfully
     await waitFor(uploadPhotoButton).toBeVisible().withTimeout(5000);
-
-    // Trigger photo upload picker action 
     await uploadPhotoButton.tap();
-
-    // Type performance evaluation / comments
     await commentTextInput.typeText('Simulation completed successfully. Parachute structural stability verified.');
-
-    // Submit the final payload report
     await finishSubmitButton.tap();
 
-    // Confirm navigation or success state returns to dashboard or completion view
     await expect(element(by.text('Activity Completed!'))).toBeVisible();
   });
 });

@@ -1,19 +1,19 @@
 import { Stack, useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    Image,
-    ImageBackground,
-    KeyboardAvoidingView,
-    Platform,
-    SafeAreaView,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View
+  ActivityIndicator,
+  Alert,
+  Image,
+  ImageBackground,
+  KeyboardAvoidingView,
+  Platform,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View
 } from 'react-native';
 
 // Firebase Imports
@@ -23,9 +23,9 @@ import { auth, db_cloud } from '../services/firebase_config';
 
 // Font Imports
 import {
-    BalsamiqSans_400Regular,
-    BalsamiqSans_700Bold,
-    useFonts
+  BalsamiqSans_400Regular,
+  BalsamiqSans_700Bold,
+  useFonts
 } from '@expo-google-fonts/balsamiq-sans';
 
 export default function SigninScreen() {
@@ -128,12 +128,14 @@ export default function SigninScreen() {
 
             {/* WHITE CARD */}
             <View style={styles.whiteCard}>
-              <Text style={styles.title}>Sign In</Text>
+              {/* 🌟 ADDED testID HERE TO ACT AS OUR 'OUTSIDE' TAP TARGET */}
+              <Text testID="signinTitle" style={styles.title}>Sign In</Text> 
 
               {/* Email Input */}
               <View style={styles.inputContainer}>
                 <Text style={styles.label}>School Email</Text>
                 <TextInput
+                  testID="emailInput" //detox
                   style={styles.inputText}
                   placeholder="name@school.edu"
                   value={email}
@@ -148,6 +150,7 @@ export default function SigninScreen() {
               <View style={styles.inputContainer}>
                 <Text style={styles.label}>Password</Text>
                 <TextInput
+                  testID="passwordInput" // 🌟 ADDED FOR DETOX
                   style={styles.inputText}
                   placeholder="Enter your password"
                   value={password}
@@ -171,6 +174,7 @@ export default function SigninScreen() {
           {/* FIXED BOTTOM BUTTON */}
           <View style={styles.fixedButtonWrapper}>
             <TouchableOpacity
+              testID="signInSubmitButton" // 🌟 ADDED FOR DETOX
               style={[styles.continueButton, isLoading && styles.buttonDisabled]}
               onPress={handleSignIn}
               disabled={isLoading}
