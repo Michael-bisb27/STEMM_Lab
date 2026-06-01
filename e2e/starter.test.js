@@ -1,6 +1,6 @@
 const { device, element, by, expect, waitFor } = require('detox');
 
-// 🌟 FORCE JEST OVERRIDE FOR THIS SPEC FILE (Prevents the 120000ms global clamp)
+// FORCE JEST OVERRIDE FOR THIS SPEC FILE (Prevents the 120000ms global clamp)
 jest.setTimeout(240000);
 
 describe('Parachute Activity Full App Flow - Production Auth & Activity Bypass', () => {
@@ -10,7 +10,7 @@ describe('Parachute Activity Full App Flow - Production Auth & Activity Bypass',
       launchArgs: { detoxSkipToFinish: true },
       permissions: {
         location: 'inuse',
-        photos: 'limited'
+        photos: 'YES'
       }
     });
 
@@ -129,30 +129,21 @@ describe('Parachute Activity Full App Flow - Production Auth & Activity Bypass',
     // ==========================================
     // STEP 5: CORE EXPERIMENTAL TRIAL MATRIX (9 RUN LIFECYCLE)
     // ==========================================
-    // Disable synchronization because the high frequency 10ms stopwatch text ticker 
-    // loops will trigger automated tracking timeout stalls
     await device.disableSynchronization();
-
     await waitFor(element(by.id('physicsProfileHeader'))).toBeVisible().withTimeout(6000);
 
     for (let i = 1; i <= 9; i++) {
-      // A. Release payload structure
       await waitFor(element(by.id('releasePayloadButton'))).toBeVisible().withTimeout(4000);
       await element(by.id('releasePayloadButton')).tap();
-      
-      // B. Fall Window: Wait 1.3 seconds so it firmly clears the 1200ms layout validation threshold
       await new Promise(resolve => setTimeout(resolve, 1300));
       
-      // C. Capture landing footprint parameters
       await element(by.text('CAPTURE IMPACT')).tap();
       await new Promise(resolve => setTimeout(resolve, 600));
       
-      // D. Select standard run advancement text routing labels
       const loggingButtonText = (i === 9) ? "[SYNCHRONIZE SESSION]" : "[Log & Move to Next Run]";
       await element(by.text(loggingButtonText)).tap();
       await new Promise(resolve => setTimeout(resolve, 800));
       
-      // E. Intercept mid-phase confirmation pop-up blocks (Triggered at Iteration 3 and 6)
       if (i === 3 || i === 6) {
         await waitFor(element(by.text('Acknowledge'))).toBeVisible().withTimeout(4000);
         await element(by.text('Acknowledge')).tap();
@@ -160,22 +151,47 @@ describe('Parachute Activity Full App Flow - Production Auth & Activity Bypass',
       }
     }
 
-    // Restore synchronization as the application navigates into the post-activity summary forms
-    await device.enableSynchronization();
     await new Promise(resolve => setTimeout(resolve, 2000));
 
     // ==========================================
-    // STEP 6: ACTIVITY FINISH & UPLOAD
+    // STEP 6: FINALE - SUBMISSION TRACKS
     // ==========================================
-    const uploadPhotoButton = element(by.id('uploadPhotoButton'));
-    const commentTextInput = element(by.id('commentTextInput'));
-    const finishSubmitButton = element(by.id('finishSubmitButton'));
+    const uploadCard = element(by.id('uploadCard'));
+    const reflectionInput = element(by.id('reflectionInput'));
+    const finishButton = element(by.id('finishButton'));
+    const outsideFinishArea = element(by.id('finishTitleSection'));
 
-    await waitFor(uploadPhotoButton).toBeVisible().withTimeout(5000);
-    await uploadPhotoButton.tap();
-    await commentTextInput.typeText('Simulation completed successfully. Parachute structural stability verified.');
-    await finishSubmitButton.tap();
+    // A. Wait for the submission interface to initialize safely
+    await waitFor(uploadCard).toBeVisible().withTimeout(8000);
 
-    await expect(element(by.text('Activity Completed!'))).toBeVisible();
+    // B. Tap the camera photo icon to execute mock selection attachment
+    await uploadCard.tap();
+    await new Promise(resolve => setTimeout(resolve, 800));
+
+    // C. Select observation input track and commit text parameter sequence
+    await reflectionInput.typeText('Detox completed');
+    
+    // D. Drop software keyboard focus boundaries cleanly
+    await outsideFinishArea.tap();
+    
+    // 🌟 FIX: Wait 1.5 seconds for the keyboard to slide down completely 
+    // and let the KeyboardAvoidingView finish resizing the viewport frames.
+    await new Promise(resolve => setTimeout(resolve, 1500));
+
+    // Swipe UP on the title area to pull the layout up and fully expose the finish button
+    await outsideFinishArea.swipe('up', 'slow', 0.5);
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
+    // E. Execute final layout submission request route
+    await finishButton.tap();
+
+    // F. Handle native iOS system alert overlay confirmation pop-ups directly
+    await waitFor(element(by.text('OK'))).toBeVisible().withTimeout(10000);
+    await element(by.text('OK')).tap();
+    
+    // Final transition confirmation back to base navigation home dashboard
+    await device.enableSynchronization();
+    await new Promise(resolve => setTimeout(resolve, 1500));
+    await expect(element(by.id('homeScrollView'))).toBeVisible();
   });
 });
