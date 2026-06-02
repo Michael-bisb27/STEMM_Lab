@@ -10,9 +10,12 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.anonymous.STEMM-Lab"
+      "bundleIdentifier": "com.anonymous.STEMM-Lab",
+      "googleServicesFile": "./GoogleService-Info.plist"
     },
     "android": {
+      "bundleIdentifier": "com.anonymous.stemm_lab",
+      "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -20,7 +23,8 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.michael_bisb27.STEMM_Lab"
     },
     "web": {
       "output": "static",
@@ -41,11 +45,20 @@
         }
       ],
       "expo-font",
-      "expo-sqlite"
+      "expo-sqlite",
+      "@react-native-firebase/app",
+      "@react-native-firebase/crashlytics",
+      "@react-native-firebase/perf"
     ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "bc99b8ba-1145-4b59-b3d3-a940075b00bc"
+      }
     }
   }
 }
