@@ -1,4 +1,4 @@
-import { Stack, useRouter } from 'expo-router';
+import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import {
   ActivityIndicator,
@@ -17,22 +17,15 @@ import {
   View
 } from 'react-native';
 
-// Firebase Imports
 import { createUserWithEmailAndPassword } from 'firebase/auth';
 import { collection, doc, getDocs, query, setDoc, where } from 'firebase/firestore';
 import { auth, db_cloud } from '../services/firebase_config';
 
-// Font Imports
-import {
-  BalsamiqSans_400Regular,
-  BalsamiqSans_700Bold,
-  useFonts
-} from '@expo-google-fonts/balsamiq-sans';
+// ─── Per-screen content ───────────────────────────────────────────────────────
 
 export default function SignupOneScreen() {
   const router = useRouter();
 
-  // State Management
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [grade, setGrade] = useState(''); 
@@ -40,19 +33,9 @@ export default function SignupOneScreen() {
   const [isLoading, setIsLoading] = useState(false);
   const [isVerifyingTeacher, setIsVerifyingTeacher] = useState(false);
 
-  // Teacher Portal States
   const [isTeacherModalVisible, setIsTeacherModalVisible] = useState(false);
   const [enteredPin, setEnteredPin] = useState('');
 
-  // Load Fonts
-  const [fontsLoaded] = useFonts({
-    BalsamiqSans_400Regular,
-    BalsamiqSans_700Bold,
-  });
-
-  if (!fontsLoaded) return null;
-
-  // TEACHER LOGIN VERIFICATION (UPDATED FOR FIREBASE)
   const handleTeacherVerify = async () => {
     if (!enteredPin.trim()) {
       Alert.alert("Required", "Please enter a PIN.");
@@ -62,7 +45,7 @@ export default function SignupOneScreen() {
     setIsVerifyingTeacher(true);
 
     try {
-      // Create a query to search the MS_Teacher collection for a matching teacherPin
+      // fetch teacher doc matching security pin
       const teacherQuery = query(
         collection(db_cloud, 'MS_Teacher'),
         where('teacherPin', '==', enteredPin.trim())
@@ -71,7 +54,6 @@ export default function SignupOneScreen() {
       const querySnapshot = await getDocs(teacherQuery);
 
       if (!querySnapshot.empty) {
-        // Successfully found a matching teacher document
         setIsTeacherModalVisible(false);
         setEnteredPin('');
         router.push('/(teacher)/home');
@@ -86,9 +68,9 @@ export default function SignupOneScreen() {
     }
   };
 
-  // 1. SIGNUP RULES & VALIDATION
   const validateForm = () => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    // ensures format is exactly 1 digit and 1 letter (e.g., 5a)
     const gradeRegex = /^\d[a-zA-Z]$/;
     
     if (!name.trim()) {
@@ -116,7 +98,6 @@ export default function SignupOneScreen() {
     return true;
   };
 
-  // 2. MAIN SIGN UP LOGIC
   const handleSignUp = async () => {
     if (!validateForm()) return;
 
@@ -131,7 +112,7 @@ export default function SignupOneScreen() {
       
       const user = userCredential.user;
 
-      // 3. FIRESTORE ENTRY (MS_Student Collection)
+      // map auth user uid directly to student collection profile
       await setDoc(doc(db_cloud, "MS_Student", user.uid), {
         studentName: name.trim(),
         schoolEmail: email.toLowerCase().trim(),
@@ -162,15 +143,12 @@ export default function SignupOneScreen() {
       style={styles.background}
       resizeMode="cover"
     >
-      <Stack.Screen options={{ headerShown: false }} />
-
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={{ flex: 1 }}
       >
         <SafeAreaView style={styles.container}>
           
-          {/* Discreet Teacher Trigger Button */}
           <TouchableOpacity 
             style={styles.teacherTrigger} 
             onPress={() => setIsTeacherModalVisible(true)}
@@ -194,7 +172,6 @@ export default function SignupOneScreen() {
             <View style={styles.whiteCard}>
               <Text style={styles.title}>Sign Up</Text>
 
-              {/* Student Name */}
               <View style={styles.inputContainer}>
                 <Text style={styles.label}>Full Name</Text>
                 <TextInput
@@ -206,7 +183,6 @@ export default function SignupOneScreen() {
                 <View style={styles.underline} />
               </View>
 
-              {/* Grade Level Input */}
               <View style={styles.inputContainer}>
                 <Text style={styles.label}>Grade (e.g., 5a, 7b)</Text>
                 <TextInput
@@ -220,7 +196,6 @@ export default function SignupOneScreen() {
                 <View style={styles.underline} />
               </View>
 
-              {/* School Email */}
               <View style={styles.inputContainer}>
                 <Text style={styles.label}>School Email</Text>
                 <TextInput
@@ -234,7 +209,6 @@ export default function SignupOneScreen() {
                 <View style={styles.underline} />
               </View>
 
-              {/* Password */}
               <View style={styles.inputContainer}>
                 <Text style={styles.label}>Password</Text>
                 <TextInput
@@ -273,7 +247,6 @@ export default function SignupOneScreen() {
         </SafeAreaView>
       </KeyboardAvoidingView>
 
-      {/* Cross-Platform Safe Teacher PIN Popup */}
       <Modal
         visible={isTeacherModalVisible}
         transparent={true}
@@ -329,6 +302,8 @@ export default function SignupOneScreen() {
     </ImageBackground>
   );
 }
+
+// ─── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
   background: { flex: 1, width: '100%', height: '100%' },
@@ -405,8 +380,6 @@ const styles = StyleSheet.create({
   },
   buttonDisabled: { opacity: 0.6 },
   continueButtonText: { fontFamily: 'BalsamiqSans_700Bold', fontSize: 18, color: '#000000' },
-  
-  // Modal Styling
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',

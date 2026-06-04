@@ -161,35 +161,22 @@ describe('Parachute Activity Full App Flow - Production Auth & Activity Bypass',
     const finishButton = element(by.id('finishButton'));
     const outsideFinishArea = element(by.id('finishTitleSection'));
 
-    // A. Wait for the submission interface to initialize safely
     await waitFor(uploadCard).toBeVisible().withTimeout(8000);
 
-    // B. Tap the camera photo icon to execute mock selection attachment
     await uploadCard.tap();
     await new Promise(resolve => setTimeout(resolve, 800));
 
-    // C. Select observation input track and commit text parameter sequence
     await reflectionInput.typeText('Detox completed');
-    
-    // D. Drop software keyboard focus boundaries cleanly
     await outsideFinishArea.tap();
-    
-    // 🌟 FIX: Wait 1.5 seconds for the keyboard to slide down completely 
-    // and let the KeyboardAvoidingView finish resizing the viewport frames.
     await new Promise(resolve => setTimeout(resolve, 1500));
 
-    // Swipe UP on the title area to pull the layout up and fully expose the finish button
     await outsideFinishArea.swipe('up', 'slow', 0.5);
     await new Promise(resolve => setTimeout(resolve, 1000));
-
-    // E. Execute final layout submission request route
     await finishButton.tap();
 
-    // F. Handle native iOS system alert overlay confirmation pop-ups directly
     await waitFor(element(by.text('OK'))).toBeVisible().withTimeout(10000);
     await element(by.text('OK')).tap();
     
-    // Final transition confirmation back to base navigation home dashboard
     await device.enableSynchronization();
     await new Promise(resolve => setTimeout(resolve, 1500));
     await expect(element(by.id('homeScrollView'))).toBeVisible();

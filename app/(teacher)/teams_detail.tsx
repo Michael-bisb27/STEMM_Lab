@@ -1,10 +1,5 @@
-import {
-    BalsamiqSans_400Regular,
-    BalsamiqSans_700Bold,
-    useFonts,
-} from '@expo-google-fonts/balsamiq-sans';
 import { Ionicons } from '@expo/vector-icons';
-import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
     ActivityIndicator,
@@ -22,11 +17,9 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-// --- FIREBASE IMPORTS ---
 import { collection, doc, onSnapshot, query, updateDoc, where } from 'firebase/firestore';
 import { db_cloud } from '../../services/firebase_config';
 
-// --- THEME IMPORTS ---
 import { themes } from '../../theme/theme';
 import { useTheme } from '../../theme/theme_context';
 
@@ -44,7 +37,6 @@ interface AttemptWithScore {
     isGraded: boolean;
 }
 
-// STRUCTURAL UPDATE: Holds both short and full text descriptions
 const activityNames: Record<string, { short: string; full: string }> = {
     'all': { short: 'All', full: 'All Activities' },
     'eng1': { short: 'Parachute', full: 'Parachute Drop' },
@@ -56,40 +48,33 @@ const activityNames: Record<string, { short: string; full: string }> = {
     'heal3': { short: 'Breathing Pace', full: 'Breathing Pace' },
 };
 
+// ─── Per-screen content ───────────────────────────────────────────────────────
+
 export default function TeacherTeamDetailScreen() {
     const router = useRouter();
     const { teamId } = useLocalSearchParams();
-    const [fontsLoaded] = useFonts({ BalsamiqSans_400Regular, BalsamiqSans_700Bold });
 
-    // --- CONSUME GLOBAL THEME CONTEXT ---
     const { isDarkMode } = useTheme();
-
-    // --- RESOLVE ACTIVE CONFIG FROM THEME ---
     const currentTheme = isDarkMode ? themes.dark : themes.light;
 
-    // --- DATA STATES ---
     const [team, setTeam] = useState<any>(null);
     const [attempts, setAttempts] = useState<AttemptWithScore[]>([]);
     const [filteredAttempts, setFilteredAttempts] = useState<AttemptWithScore[]>([]);
     const [selectedActivity, setSelectedActivity] = useState<string>('all');
     const [loading, setLoading] = useState<boolean>(true);
 
-    // --- STATES FOR TEAM MEMBERS MANAGEMENT ---
     const [students, setStudents] = useState<any[]>([]);
     const [isManageModalOpen, setIsManageModalOpen] = useState<boolean>(false);
 
-    // --- 1. MULTI-STREAM REALTIME SYNC ENGINE ---
     useEffect(() => {
         if (!teamId) return;
 
-        // Sync Target Team Profile Metadata Fields
         const unsubscribeTeam = onSnapshot(doc(db_cloud, "MS_Team", teamId as string), (docSnap) => {
             if (docSnap.exists()) {
                 setTeam(docSnap.data());
             }
         });
 
-        // Sync Team Members (Students)
         const studentsQuery = query(collection(db_cloud, "MS_Student"), where("teamID", "==", teamId));
         const unsubscribeStudents = onSnapshot(studentsQuery, (snapshot) => {
             const studentList: any[] = [];
@@ -99,13 +84,12 @@ export default function TeacherTeamDetailScreen() {
             setStudents(studentList);
         });
 
-        // Combined data caches for real-time aggregation parsing
         let rawAttempts: any[] = [];
         let rawScores: any[] = [];
 
+        // map cross-collection snapshot items to aggregate relational database rows on client side
         const mergeTelemetryData = () => {
             const compiledAttempts: AttemptWithScore[] = rawAttempts.map((attempt) => {
-                // Find matching evaluation result profile records
                 const matchingScore = rawScores.find(score => score.AttemptID === attempt.id);
                 
                 const gradedStatus = !!matchingScore;
@@ -126,13 +110,11 @@ export default function TeacherTeamDetailScreen() {
                 };
             });
 
-            // Sort chronological trial flows highest number entries down to baseline first steps
             compiledAttempts.sort((a, b) => b.trialNumber - a.trialNumber);
             setAttempts(compiledAttempts);
             setLoading(false);
         };
 
-        // Query attempt logs logged under matching TeamID parameter tags
         const attemptsQuery = query(collection(db_cloud, "FC_Attempt"), where("TeamID", "==", teamId));
         const unsubscribeAttempts = onSnapshot(attemptsQuery, (snapshot) => {
             rawAttempts = [];
@@ -140,7 +122,6 @@ export default function TeacherTeamDetailScreen() {
             mergeTelemetryData();
         });
 
-        // Query evaluated grade schema listings attached to target team profiles
         const scoresQuery = query(collection(db_cloud, "FC_Scoring_Result"), where("TeamID", "==", teamId));
         const unsubscribeScores = onSnapshot(scoresQuery, (snapshot) => {
             rawScores = [];
@@ -156,19 +137,17 @@ export default function TeacherTeamDetailScreen() {
         };
     }, [teamId]);
 
-    // --- 2. ACTIVITY FILTERING PIPELINE ---
     useEffect(() => {
         if (selectedActivity === 'all') {
             setFilteredAttempts(attempts);
         } else {
+            // handle exception routing rules for custom firestore string identifier keys
             setFilteredAttempts(attempts.filter(a => a.activityId === selectedActivity || (selectedActivity === 'eng1' && a.activityId === 'Qvn4OR5l7pf9pCXB2pkq')));
         }
     }, [selectedActivity, attempts]);
 
-    // --- METADATA LOOKUP UTILITY ---
     const currentLeaderProfile = students.find(s => s.id === team?.teamLeader);
 
-    // --- MANAGEMENT HANDLERS ---
     const handleSetLeader = async (studentId: string) => {
         try {
             const teamDocRef = doc(db_cloud, "MS_Team", teamId as string);
@@ -206,13 +185,12 @@ export default function TeacherTeamDetailScreen() {
         );
     };
 
-    // UPDATED REFERENCE LOOKUP
     const getActivityLabel = (id: string) => {
         if (id === "Qvn4OR5l7pf9pCXB2pkq") return activityNames['eng1'].full;
         return activityNames[id]?.full || 'Science Lab Activity';
     };
 
-    if (!fontsLoaded || loading) {
+    if (loading) {
         return (
             <View style={[styles.loader, { backgroundColor: isDarkMode ? '#121212' : '#F3F0E9' }]}>
                 <ActivityIndicator size="large" color="#00E5FF" />
@@ -222,9 +200,7 @@ export default function TeacherTeamDetailScreen() {
 
     return (
         <ImageBackground source={currentTheme.backgroundImage} style={styles.background}>
-            <Stack.Screen options={{ headerShown: false }} />
-
-            {/* --- TOP MENU BAR --- */}
+            
             <View style={styles.headerWrapper}>
                 <SafeAreaView edges={['top']}>
                     <View style={styles.topBar}>
@@ -246,7 +222,6 @@ export default function TeacherTeamDetailScreen() {
             <SafeAreaView style={styles.safeArea} edges={['left', 'right', 'bottom']}>
                 <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.mainScroll}>
                     
-                    {/* --- TEAM PROFILE OVERVIEW SUMMARY HEADER CARD --- */}
                     <View style={styles.teamSummaryCard}>
                         <View style={styles.summaryHeaderRow}>
                             <View style={{ flex: 1 }}>
@@ -290,7 +265,6 @@ export default function TeacherTeamDetailScreen() {
 
                     <Text style={[styles.sectionTitle, { color: currentTheme.textColor }]}>Lab Work Scope Filter</Text>
 
-                    {/* --- HORIZONTAL LAB ACTIVITIES SELECTOR CAROUSEL --- */}
                     <ScrollView 
                         horizontal 
                         showsHorizontalScrollIndicator={false} 
@@ -305,7 +279,6 @@ export default function TeacherTeamDetailScreen() {
                                     onPress={() => setSelectedActivity(key)}
                                     activeOpacity={0.8}
                                 >
-                                    {/* DYNAMIC SWAPPING: Renders full text when active, short text otherwise */}
                                     <Text style={[styles.filterChipText, isSelected && styles.filterChipTextActive]}>
                                         {isSelected ? activityNames[key].full : activityNames[key].short}
                                     </Text>
@@ -316,7 +289,6 @@ export default function TeacherTeamDetailScreen() {
 
                     <Text style={[styles.sectionSubtitle, { color: currentTheme.textColor }]}>Historical Run Instances ({filteredAttempts.length})</Text>
 
-                    {/* --- ATTEMPTS TIMELINE DATA SHEET FEED --- */}
                     <View style={styles.historyFeedWrapper}>
                         {filteredAttempts.length === 0 ? (
                             <View style={styles.emptyFeedCard}>
@@ -381,7 +353,6 @@ export default function TeacherTeamDetailScreen() {
 
                 </ScrollView>
 
-                {/* --- TEAM ROSTER MANAGEMENT OVERLAY MODAL --- */}
                 <Modal
                     visible={isManageModalOpen}
                     animationType="slide"
@@ -444,7 +415,6 @@ export default function TeacherTeamDetailScreen() {
                     </View>
                 </Modal>
 
-                {/* --- NAVIGATION TAB FOOTER BOTTOM TABS BAR --- */}
                 <View style={styles.bottomTabs}>
                     <TouchableOpacity style={styles.tabItem} onPress={() => router.push('/(teacher)/home')}>
                         <Image source={require('../../assets/images/Home.png')} style={styles.tabIcon} />
@@ -464,6 +434,8 @@ export default function TeacherTeamDetailScreen() {
         </ImageBackground>
     );
 }
+
+// ─── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
     background: { flex: 1 },

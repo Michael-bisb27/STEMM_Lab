@@ -1,5 +1,4 @@
 // theme.js
-
 export const themes = {
     light: {
         // Your current default styling

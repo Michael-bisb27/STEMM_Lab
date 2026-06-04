@@ -1,4 +1,4 @@
-import { Stack, useRouter } from 'expo-router';
+import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import {
   ActivityIndicator,
@@ -16,35 +16,19 @@ import {
   View
 } from 'react-native';
 
-// Firebase Imports
 import { signInWithEmailAndPassword } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
 import { auth, db_cloud } from '../services/firebase_config';
 
-// Font Imports
-import {
-  BalsamiqSans_400Regular,
-  BalsamiqSans_700Bold,
-  useFonts
-} from '@expo-google-fonts/balsamiq-sans';
+// ─── Per-screen content ───────────────────────────────────────────────────────
 
 export default function SigninScreen() {
   const router = useRouter();
 
-  // State Management
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
-  // Load Fonts
-  const [fontsLoaded] = useFonts({
-    BalsamiqSans_400Regular,
-    BalsamiqSans_700Bold,
-  });
-
-  if (!fontsLoaded) return null;
-
-  // 1. VALIDATION
   const validateForm = () => {
     if (!email.trim() || !password.trim()) {
       Alert.alert("Input Required", "Please enter both your email and password.");
@@ -53,14 +37,12 @@ export default function SigninScreen() {
     return true;
   };
 
-  // 2. SIGN IN LOGIC
   const handleSignIn = async () => {
     if (!validateForm()) return;
 
     setIsLoading(true);
 
     try {
-      // Step A: Firebase Auth Sign In
       const userCredential = await signInWithEmailAndPassword(
         auth,
         email.trim(),
@@ -69,25 +51,20 @@ export default function SigninScreen() {
       
       const user = userCredential.user;
 
-      // Step B: Connect the dots — Verify they exist in MS_Student
+      // verify student profile document exists in firestore
       const userDocRef = doc(db_cloud, "MS_Student", user.uid);
       const userDoc = await getDoc(userDocRef);
 
       if (userDoc.exists()) {
-        // If profile exists, send them home
         router.push('/home');
       } else {
-        // This handles cases where auth exists but Firestore document was never created
         Alert.alert("Profile Not Found", "Your account exists but your student profile is missing. Please contact support.");
-        // Optional: Send to signup if the profile is truly missing
       }
 
     } catch (err) {
-      // THE CLEAN WAY: Cast 'err' to access properties safely
       const error = err as { code?: string; message?: string };
       console.error("Signin Error Log:", error);
 
-      // Handle common Firebase Auth errors
       if (error.code === 'auth/invalid-credential' || error.code === 'auth/wrong-password' || error.code === 'auth/user-not-found') {
         Alert.alert("Login Failed", "Invalid email or password. Please try again.");
       } else if (error.code === 'auth/too-many-requests') {
@@ -106,8 +83,6 @@ export default function SigninScreen() {
       style={styles.background}
       resizeMode="cover"
     >
-      <Stack.Screen options={{ headerShown: false }} />
-
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={{ flex: 1 }}
@@ -117,7 +92,6 @@ export default function SigninScreen() {
             contentContainerStyle={styles.scrollContent}
             showsVerticalScrollIndicator={false}
           >
-            {/* LOGO SECTION */}
             <View style={styles.logoSection}>
               <Image
                 source={require('../assets/images/Logo.png')}
@@ -126,16 +100,13 @@ export default function SigninScreen() {
               />
             </View>
 
-            {/* WHITE CARD */}
             <View style={styles.whiteCard}>
-              {/* 🌟 ADDED testID HERE TO ACT AS OUR 'OUTSIDE' TAP TARGET */}
               <Text testID="signinTitle" style={styles.title}>Sign In</Text> 
 
-              {/* Email Input */}
               <View style={styles.inputContainer}>
                 <Text style={styles.label}>School Email</Text>
                 <TextInput
-                  testID="emailInput" //detox
+                  testID="emailInput"
                   style={styles.inputText}
                   placeholder="name@school.edu"
                   value={email}
@@ -146,11 +117,10 @@ export default function SigninScreen() {
                 <View style={styles.underline} />
               </View>
 
-              {/* Password Input */}
               <View style={styles.inputContainer}>
                 <Text style={styles.label}>Password</Text>
                 <TextInput
-                  testID="passwordInput" // 🌟 ADDED FOR DETOX
+                  testID="passwordInput"
                   style={styles.inputText}
                   placeholder="Enter your password"
                   value={password}
@@ -161,7 +131,6 @@ export default function SigninScreen() {
                 <View style={styles.underline} />
               </View>
 
-              {/* Link to Sign Up */}
               <View style={styles.noAccountContainer}>
                 <Text style={styles.noAccountText}>*Don't have an account? </Text>
                 <TouchableOpacity onPress={() => router.push('/signup_1')}>
@@ -171,10 +140,9 @@ export default function SigninScreen() {
             </View>
           </ScrollView>
 
-          {/* FIXED BOTTOM BUTTON */}
           <View style={styles.fixedButtonWrapper}>
             <TouchableOpacity
-              testID="signInSubmitButton" // 🌟 ADDED FOR DETOX
+              testID="signInSubmitButton"
               style={[styles.continueButton, isLoading && styles.buttonDisabled]}
               onPress={handleSignIn}
               disabled={isLoading}
@@ -191,6 +159,8 @@ export default function SigninScreen() {
     </ImageBackground>
   );
 }
+
+// ─── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
   background: { flex: 1, width: '100%', height: '100%' },

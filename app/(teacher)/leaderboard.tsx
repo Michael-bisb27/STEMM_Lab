@@ -1,10 +1,5 @@
-import {
-    BalsamiqSans_400Regular,
-    BalsamiqSans_700Bold,
-    useFonts,
-} from '@expo-google-fonts/balsamiq-sans';
 import { Ionicons } from '@expo/vector-icons';
-import { Stack, useRouter } from 'expo-router';
+import { useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import {
     ActivityIndicator,
@@ -18,15 +13,13 @@ import {
     StyleSheet,
     Text,
     TouchableOpacity,
-    View,
+    View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-// --- FIREBASE IMPORTS ---
 import { collection, onSnapshot } from 'firebase/firestore';
 import { db_cloud } from '../../services/firebase_config';
 
-// --- THEME IMPORTS ---
 import { themes } from '../../theme/theme';
 import { useTheme } from '../../theme/theme_context';
 
@@ -42,27 +35,22 @@ interface LeaderboardTeam {
     discriminator: string;
 }
 
+// ─── Per-screen content ───────────────────────────────────────────────────────
+
 export default function TeacherLeaderboardScreen() {
     const router = useRouter();
-    const [fontsLoaded] = useFonts({ BalsamiqSans_400Regular, BalsamiqSans_700Bold });
 
-    // --- CONSUME GLOBAL THEME CONTEXT ---
     const { isDarkMode } = useTheme();
-
-    // --- RESOLVE ACTIVE CONFIG FROM THEME ---
     const currentTheme = isDarkMode ? themes.dark : themes.light;
 
-    // --- STATES ---
     const [leaderboard, setLeaderboard] = useState<LeaderboardTeam[]>([]);
     const [loading, setLoading] = useState<boolean>(true);
     
-    // --- CLASS METRICS ANALYTICS STATES ---
     const [classAverage, setClassAverage] = useState<number>(0);
     const [highestScore, setHighestScore] = useState<number>(0);
     const [classVelocity, setClassVelocity] = useState<string>('Low Progress');
     const [insightsList, setInsightsList] = useState<string[]>([]);
 
-    // --- CUSTOM SCROLLBAR LOGIC ---
     const [contentHeight, setContentHeight] = useState<number>(1);
     const [containerHeight, setContainerHeight] = useState<number>(1);
     const scrollY = useRef(new Animated.Value(0)).current;
@@ -71,28 +59,27 @@ export default function TeacherLeaderboardScreen() {
         ? (containerHeight / contentHeight) * containerHeight
         : 0;
 
+    // map track scroll position directly to custom scrollbar thumb layout overlay
     const scrollIndicatorOffset = Animated.multiply(
         scrollY,
         containerHeight / contentHeight
     );
 
-    // --- 1. REAL-TIME MULTI-COLLECTION STREAM COMBINATOR ---
     useEffect(() => {
         let teamsCache: any[] = [];
         let scoresCache: any[] = [];
 
+        // manually stream and map collections on client to avoid complex server indexing
         const compileLeaderboard = () => {
             let totalScoreAccumulator = 0;
             let maxScoreFound = 0;
             const compiledList: LeaderboardTeam[] = [];
 
             teamsCache.forEach((team) => {
-                // Filter all grading results belonging to this specific team
                 const teamResults = scoresCache.filter(score => score.TeamID === team.id);
-
-                // Group scores by ActivityID to isolate their highest milestone score and count attempts
                 const activityMap: Record<string, { maxScore: number; trials: number }> = {};
 
+                // isolate peak scored attempt performance per single unique activity id
                 teamResults.forEach((res) => {
                     const actId = res.ActivityID || "unknown_activity";
                     const score = (res.accuracyScore || 0) + (res.workScore || 0);
@@ -107,7 +94,6 @@ export default function TeacherLeaderboardScreen() {
                     }
                 });
 
-                // Calculate total best cumulative score across all unique activities and total trials loaded
                 let totalBestScore = 0;
                 let totalTrialsUsed = 0;
 
@@ -132,7 +118,7 @@ export default function TeacherLeaderboardScreen() {
                 });
             });
 
-            // Sort by highest score. If scores match, the team with fewer trials ranks higher
+            // tie-breaker layout rule: less trials breaks equivalent scores
             compiledList.sort((a, b) => {
                 if (b.teamScore === a.teamScore) {
                     return a.totalAttempts - b.totalAttempts; 
@@ -140,7 +126,6 @@ export default function TeacherLeaderboardScreen() {
                 return b.teamScore - a.teamScore;
             });
 
-            // Map correct ranking numbers based on sorted array positions
             compiledList.forEach((item, index) => {
                 item.rank = index + 1;
             });
@@ -152,7 +137,7 @@ export default function TeacherLeaderboardScreen() {
             setClassAverage(computedAverage);
             setHighestScore(maxScoreFound);
 
-            // --- DYNAMIC AUTOMATED INSIGHTS FOOTER ENGINE ---
+            // evaluate dynamic class analytic metrics against custom point thresholds
             const dynamicInsights: string[] = [];
             if (totalTeamsCount === 0) {
                 setClassVelocity('No Data Available');
@@ -180,7 +165,6 @@ export default function TeacherLeaderboardScreen() {
             setLoading(false);
         };
 
-        // Stream 1: Listen to active teams
         const unsubscribeTeams = onSnapshot(collection(db_cloud, "MS_Team"), (snapshot) => {
             teamsCache = [];
             snapshot.forEach(doc => teamsCache.push({ id: doc.id, ...doc.data() }));
@@ -189,7 +173,6 @@ export default function TeacherLeaderboardScreen() {
             console.error("Teams Stream Error:", error);
         });
 
-        // Stream 2: Listen to trial score evaluations
         const unsubscribeScores = onSnapshot(collection(db_cloud, "FC_Scoring_Result"), (snapshot) => {
             scoresCache = [];
             snapshot.forEach(doc => scoresCache.push(doc.data()));
@@ -209,7 +192,7 @@ export default function TeacherLeaderboardScreen() {
         return n + (s[(v - 20) % 10] || s[v] || s[0]);
     };
 
-    if (!fontsLoaded || loading) {
+    if (loading) {
         return (
             <View style={[styles.loadingContainer, { backgroundColor: isDarkMode ? '#121212' : '#F3F0E9' }]}>
                 <ActivityIndicator size="large" color="#00E5FF" />
@@ -221,9 +204,7 @@ export default function TeacherLeaderboardScreen() {
 
     return (
         <ImageBackground source={currentTheme.backgroundImage} style={styles.background}>
-            <Stack.Screen options={{ headerShown: false }} />
-
-            {/* --- TOP MENU BAR --- */}
+            
             <View style={styles.headerWrapper}>
                 <SafeAreaView edges={['top']}>
                     <View style={styles.topBar}>
@@ -253,7 +234,6 @@ export default function TeacherLeaderboardScreen() {
             <SafeAreaView style={styles.safeArea} edges={['left', 'right', 'bottom']}>
                 <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.mainScroll}>
                     
-                    {/* --- INSTRUCTIONAL DASHBOARD PERFORMANCE ANALYTICS SUMMARY CARD --- */}
                     <View style={styles.rankGoalsCard}>
                         <View style={styles.cardHeaderRow}>
                             <Text style={styles.cardHeaderTitle}>Class Performance Overview</Text>
@@ -277,7 +257,6 @@ export default function TeacherLeaderboardScreen() {
 
                     <Text style={[styles.sectionTitle, { color: currentTheme.textColor }]}>Lab Standings</Text>
 
-                    {/* --- LEADERBOARD MAIN SYSTEM CARD CONTAINER --- */}
                     <View style={styles.leaderboardMainCard}>
                         <View style={styles.leaderboardHeader}>
                              <Image source={require('../../assets/images/First.png')} style={styles.medalIcon} />
@@ -322,7 +301,6 @@ export default function TeacherLeaderboardScreen() {
                         </View>
                     </View>
 
-                    {/* --- DYNAMIC SUMMARY INSIGHTS FOOTER BANNER CARD --- */}
                     <View style={styles.summaryCard}>
                         <View style={styles.cyanRankBox}>
                             <Ionicons name="analytics" size={32} color="#000" />
@@ -339,7 +317,6 @@ export default function TeacherLeaderboardScreen() {
 
                 </ScrollView>
 
-                {/* --- NAVIGATION TAB FOOTER BOTTOM TABS BAR --- */}
                 <View style={styles.bottomTabs}>
                     <TouchableOpacity style={styles.tabItem} onPress={() => router.push('/(teacher)/home')}>
                         <Image source={require('../../assets/images/Home.png')} style={styles.tabIcon} />
@@ -359,6 +336,8 @@ export default function TeacherLeaderboardScreen() {
         </ImageBackground>
     );
 }
+
+// ─── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
     background: { flex: 1 },

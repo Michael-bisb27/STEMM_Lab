@@ -1,10 +1,5 @@
-import {
-    BalsamiqSans_400Regular,
-    BalsamiqSans_700Bold,
-    useFonts,
-} from '@expo-google-fonts/balsamiq-sans';
 import { Ionicons } from '@expo/vector-icons';
-import { Stack, useRouter } from 'expo-router';
+import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
     ActivityIndicator,
@@ -21,11 +16,9 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-// --- FIREBASE IMPORTS ---
 import { collection, getDocs, onSnapshot, query, where } from 'firebase/firestore';
 import { db_cloud } from '../../services/firebase_config';
 
-// --- THEME IMPORTS ---
 import { themes } from '../../theme/theme';
 import { useTheme } from '../../theme/theme_context';
 
@@ -43,17 +36,14 @@ interface Attempt {
     submittedAt: any;
 }
 
+// ─── Per-screen content ───────────────────────────────────────────────────────
+
 export default function TeacherHomeScreen() {
     const router = useRouter();
-    const [fontsLoaded] = useFonts({ BalsamiqSans_400Regular, BalsamiqSans_700Bold });
 
-    // --- CONSUME GLOBAL THEME CONTEXT ---
     const { isDarkMode } = useTheme();
-
-    // --- RESOLVE ACTIVE CONFIG FROM THEME ---
     const currentTheme = isDarkMode ? themes.dark : themes.light;
 
-    // --- STATES ---
     const [teacherData, setTeacherData] = useState<any>(null);
     const [selectedDivision, setSelectedDivision] = useState<string>('');
     const [selectedTeamFilter, setSelectedTeamFilter] = useState<string>('All Teams');
@@ -63,12 +53,10 @@ export default function TeacherHomeScreen() {
     const [scoredAttempts, setScoredAttempts] = useState<Attempt[]>([]);
     const [loading, setLoading] = useState(true);
 
-    // Relational database state mirrors
     const [dbAttempts, setDbAttempts] = useState<any[]>([]);
     const [dbTeams, setDbTeams] = useState<Record<string, any>>({});
     const [dbScores, setDbScores] = useState<Record<string, any>>({});
 
-    // Helper to extract cleanly formatted dates out of Firestore timestamp objects
     const formatTimestampLabel = (timestamp: any) => {
         if (!timestamp) return 'Just now';
         const dateObject = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
@@ -80,7 +68,6 @@ export default function TeacherHomeScreen() {
         });
     };
 
-    // --- 1. FETCH TEACHER PROFILE FROM FIREBASE FIRESTORE ---
     useEffect(() => {
         const fetchTeacherProfile = async () => {
             try {
@@ -119,10 +106,10 @@ export default function TeacherHomeScreen() {
         fetchTeacherProfile();
     }, []);
 
-    // --- 2. MULTI-COLLECTION REAL-TIME LISTENER RIG ---
     useEffect(() => {
         setLoading(true);
 
+        // stream multiple collections in real-time to build a client-side relational store
         const unsubAttempts = onSnapshot(collection(db_cloud, "FC_Attempt"), (snapshot) => {
             const list: any[] = [];
             snapshot.forEach(doc => {
@@ -155,7 +142,7 @@ export default function TeacherHomeScreen() {
         };
     }, []);
 
-    // --- 3. RELATIONAL RE-COMPOSER & FILTER MATRIX PIPELINE ---
+    // client-side relational join and filter logic matching active division
     useEffect(() => {
         if (!selectedDivision || dbAttempts.length === 0) {
             setUnscoredAttempts([]);
@@ -174,10 +161,10 @@ export default function TeacherHomeScreen() {
                 const scoreRecord = dbScores[attempt.id];
                 const currentTeamName = teamProfile.teamName || "Anonymous Team";
                 
-                // Track all unique student teams operating in this division sector layout
+                // track unique team names to populate layout filter chip row
                 detectedTeams.add(currentTeamName);
 
-                // RULE CORRECTION: Must evaluate true only if record profile matches and neither score column is zero (0)
+                // checks if non-zero scores exist to verify lab review state
                 const evaluatedState = scoreRecord && 
                                        (scoreRecord.accuracyScore > 0) && 
                                        (scoreRecord.workScore > 0);
@@ -220,24 +207,22 @@ export default function TeacherHomeScreen() {
             }
         });
 
-        // Set up the team layout filtering bar state elements list
         setTeamFilterOptions(['All Teams', ...Array.from(detectedTeams).sort()]);
 
-        // INNOVATION: Chronological sorting (Oldest submissions rise to top for FIFO workload priority)
+        // sort unscored items oldest-first for a fifo grading queue
         unscored.sort((a, b) => {
             const timeA = a.submittedAt?.seconds || 0;
             const timeB = b.submittedAt?.seconds || 0;
             return timeA - timeB; 
         });
 
-        // Sort scored items with newest evaluations tracking first at the top
         scored.sort((a, b) => {
             const timeA = a.submittedAt?.seconds || 0;
             const timeB = b.submittedAt?.seconds || 0;
             return timeB - timeA;
         });
 
-        // Apply interactive user sub-layout string target filter rules if selected
+        // filter rows if a specific team chip filter is active
         if (selectedTeamFilter !== 'All Teams') {
             unscored = unscored.filter(item => item.teamName === selectedTeamFilter);
             scored = scored.filter(item => item.teamName === selectedTeamFilter);
@@ -245,22 +230,20 @@ export default function TeacherHomeScreen() {
 
         setUnscoredAttempts(unscored);
         setScoredAttempts(scored);
-        setLoading(false);
+        setFalseLoading(false);
     }, [selectedDivision, selectedTeamFilter, dbAttempts, dbTeams, dbScores]);
 
-    // Reset filtering pointers cleanly whenever switching between Primary or Junior High sectors
     const handleDivisionSwitch = (divName: string) => {
         setSelectedTeamFilter('All Teams');
         setSelectedDivision(divName);
     };
 
-    if (!fontsLoaded) return null;
+    const setFalseLoading = (state: boolean) => {
+        setLoading(state);
+    };
 
     return (
         <ImageBackground source={currentTheme.backgroundImage} style={styles.background}>
-            <Stack.Screen options={{ headerShown: false }} />
-            
-            {/* --- TOP BAR HEADER --- */}
             <View style={styles.headerWrapper}>
                 <SafeAreaView edges={['top']}>
                     <View style={styles.topBar}>
@@ -295,7 +278,6 @@ export default function TeacherHomeScreen() {
                     showsVerticalScrollIndicator={false} 
                     contentContainerStyle={styles.mainScroll}
                 >
-                    {/* --- WELCOME & PROFILE HEADER --- */}
                     <View style={styles.userInfoRow}>
                         <View>
                             <Text style={[styles.welcomeText, { color: currentTheme.textColor }]}>Welcome back,</Text>
@@ -307,7 +289,6 @@ export default function TeacherHomeScreen() {
                         </View>
                     </View>
 
-                    {/* --- DYNAMIC DIVISION SELECTOR TABS --- */}
                     {teacherData && teacherData.divisions.length > 1 && (
                         <View style={styles.gradeToggleWrapper}>
                             {teacherData.divisions.map((div: string) => (
@@ -324,7 +305,6 @@ export default function TeacherHomeScreen() {
                         </View>
                     )}
 
-                    {/* --- PERFORMANCE QUICK METRICS --- */}
                     <View style={styles.statsMetricsRow}>
                         <View style={[styles.metricCard, { borderColor: '#FFB74D' }]}>
                             <Text style={styles.metricNumber}>{unscoredAttempts.length}</Text>
@@ -336,7 +316,6 @@ export default function TeacherHomeScreen() {
                         </View>
                     </View>
 
-                    {/* --- INTERACTIVE HORIZONTAL TEAM FILTER CONTAINER --- */}
                     <View style={styles.filterSectionWrapper}>
                         <Text style={[styles.filterBarTitle, { color: currentTheme.textColor }]}>🔍 Workspace Filter Row</Text>
                         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterScrollTrack}>
@@ -355,7 +334,6 @@ export default function TeacherHomeScreen() {
                         </ScrollView>
                     </View>
 
-                    {/* --- SECTION: UNSCORED ATTEMPTS --- */}
                     <Text style={[styles.sectionTitle, { color: currentTheme.textColor }]}>📋 Needs Grading ({unscoredAttempts.length})</Text>
                     {loading ? (
                         <ActivityIndicator size="large" color="#00E5FF" style={{ marginTop: 20 }} />
@@ -374,7 +352,6 @@ export default function TeacherHomeScreen() {
                                 })}
                             >
                                 <View style={styles.attemptLeftBlock}>
-                                    {/* INNOVATIVE WORKFLOW ALIGNMENT: Flags the longest waiting item chronologically at the head of the array index */}
                                     {index === 0 && selectedTeamFilter === 'All Teams' ? (
                                         <View style={styles.urgencyFlagBadge}>
                                             <Text style={styles.urgencyFlagText}>⚠️ OLDEST IN QUEUE</Text>
@@ -398,7 +375,6 @@ export default function TeacherHomeScreen() {
                         ))
                     )}
 
-                    {/* --- SECTION: SCORED ATTEMPTS --- */}
                     <Text style={[styles.sectionTitle, { color: currentTheme.textColor }]}>✅ Recently Evaluated ({scoredAttempts.length})</Text>
                     {loading ? (
                         <ActivityIndicator size="large" color="#00E5FF" style={{ marginTop: 20 }} />
@@ -430,7 +406,6 @@ export default function TeacherHomeScreen() {
                     )}
                 </ScrollView>
 
-                {/* --- NAVIGATION TAB FOOTER --- */}
                 <View style={styles.bottomTabs}>
                     <TouchableOpacity style={styles.tabItem} onPress={() => router.push('/(teacher)/home')}>
                         <Image source={require('../../assets/images/HomeB.png')} style={styles.tabIconActive} />
@@ -449,6 +424,8 @@ export default function TeacherHomeScreen() {
         </ImageBackground>
     );
 }
+
+// ─── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
     background: { flex: 1 },

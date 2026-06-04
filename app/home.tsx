@@ -1,10 +1,5 @@
-import {
-    BalsamiqSans_400Regular,
-    BalsamiqSans_700Bold,
-    useFonts,
-} from '@expo-google-fonts/balsamiq-sans';
 import { Ionicons } from '@expo/vector-icons';
-import { Stack, useRouter } from 'expo-router';
+import { useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import {
     ActivityIndicator,
@@ -20,9 +15,9 @@ import {
     TouchableOpacity,
     View
 } from 'react-native';
+import { BannerAd, BannerAdSize, TestIds } from 'react-native-google-mobile-ads';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-// --- FIREBASE IMPORTS ---
 import { getAuth } from 'firebase/auth';
 import {
     addDoc,
@@ -39,16 +34,16 @@ import {
 } from 'firebase/firestore';
 import { db_cloud } from '../services/firebase_config';
 
-// --- THEME IMPORTS ---
 import { themes } from '../theme/theme';
 import { useTheme } from '../theme/theme_context';
 
 const { width } = Dimensions.get('window');
 
-// --- SESSION LOGGED IN FLAG ---
+// Production safety toggle constant
+const adUnitId = __DEV__ ? TestIds.BANNER : 'ca-app-pub-xxxxxxxxxxxxxxxx';
+
 let globalHasShownWelcome = false;
 
-// Challenges Mock Data with Added Routes
 const engineeringChallenges = [
     { id: 'eng1', title: 'Parachute Drop...', fullTitle: 'Parachute Drop Challenge', image: require('../assets/images/parachute_snippet.png'), route: '/parachute' },
     { id: 'eng2', title: 'Sound Pollutio...', fullTitle: 'Sound Pollution Hunter', image: require('../assets/images/sound_snippet.png'), route: '/sound' },
@@ -58,11 +53,10 @@ const engineeringChallenges = [
 
 const healthChallenges = [
     { id: 'heal1', title: 'Human Perfor...', fullTitle: 'Human Performance Lab', image: require('../assets/images/human_snippet.png'), route: '/human' },
-    { id: 'heal2', title: 'Reaction boar...', fullTitle: 'Reaction Board Challenge', image: require('../assets/images/reaction_snippet.png'), route: '/reaction' },
+    { id: 'heal2', title: 'Reaction board...', fullTitle: 'Reaction Board Challenge', image: require('../assets/images/reaction_snippet.png'), route: '/reaction' },
     { id: 'heal3', title: 'Breathing pac...', fullTitle: 'Breathing Pace Trainer', image: require('../assets/images/breathing_snippet.png'), route: '/breathing' },
 ];
 
-// --- CHALLENGE CARD COMPONENT ---
 const ChallengeCard = React.memo(({ item, isExpanded, onExpand, router }: any) => {
     const scaleValue = useRef(new Animated.Value(1)).current;
 
@@ -88,9 +82,10 @@ const ChallengeCard = React.memo(({ item, isExpanded, onExpand, router }: any) =
 
     return (
         <TouchableOpacity 
-        testID={`challenge-card-${item.id}`}
-        activeOpacity={0.9} 
-        onPress={handleCardPress}>
+            testID={`challenge-card-${item.id}`}
+            activeOpacity={0.9} 
+            onPress={handleCardPress}
+        >
             <Animated.View style={[
                 styles.cardContainer, 
                 { transform: [{ scale: scaleValue }], zIndex: isExpanded ? 100 : 1 },
@@ -121,15 +116,14 @@ const ChallengeCard = React.memo(({ item, isExpanded, onExpand, router }: any) =
     );
 });
 
+// ─── Per-screen content ───────────────────────────────────────────────────────
+
 export default function HomeScreen() {
     const router = useRouter();
-    const [fontsLoaded] = useFonts({ BalsamiqSans_400Regular, BalsamiqSans_700Bold });
 
-    // --- CONSUME GLOBAL THEME CONTEXT ---
     const { isDarkMode } = useTheme();
     const currentTheme = isDarkMode ? themes.dark : themes.light;
 
-    // --- STATES ---
     const [userData, setUserData] = useState<any>(null);
     const [trivia, setTrivia] = useState<any>(null);
     const [hasAnswered, setHasAnswered] = useState(false);
@@ -139,11 +133,9 @@ export default function HomeScreen() {
     const [expandedId, setExpandedId] = useState<string | null>(null);
     const [attemptedCount, setAttemptedCount] = useState(0);
 
-    // --- ANIMATION REFS FOR IN-APP NOTIFICATION ---
     const notificationY = useRef(new Animated.Value(-120)).current;
     const notificationOpacity = useRef(new Animated.Value(0)).current;
 
-    // --- 1. SYNC PROFILE & TEAM DATA ---
     useEffect(() => {
         const fetchFullProfile = async () => {
             try {
@@ -159,6 +151,7 @@ export default function HomeScreen() {
                         let teamName = "No Team";
                         let discriminator = "0000";
 
+                        // resolve linked team identifier profile metadata dynamically
                         if (sData.teamID && sData.teamID !== "WAITING_FOR_ASSIGNMENT") {
                             const teamDocRef = doc(db_cloud, "MS_Team", sData.teamID);
                             const teamSnap = await getDoc(teamDocRef);
@@ -188,7 +181,6 @@ export default function HomeScreen() {
         fetchFullProfile();
     }, []);
 
-    // --- 2. TRIVIA LOGIC ---
     useEffect(() => {
         if (!userData?.teamId) return;
 
@@ -204,6 +196,7 @@ export default function HomeScreen() {
                 let activeDoc = null;
                 const now = new Date();
                 
+                // loop snapshot rows to filter active timeframe window on client side
                 for (const docSnap of snapshot.docs) {
                     const data = docSnap.data();
                     if (now <= data.endDate.toDate()) {
@@ -242,7 +235,6 @@ export default function HomeScreen() {
         };
     }, [userData]);
 
-    // --- 3. TIMER ---
     useEffect(() => {
         if (!trivia || hasAnswered) return;
 
@@ -266,7 +258,6 @@ export default function HomeScreen() {
         return () => clearInterval(interval);
     }, [trivia, hasAnswered]);
 
-    // --- 4. PROGRESS TRACKING LOGIC ---
     useEffect(() => {
         if (!userData) return;
 
@@ -284,6 +275,7 @@ export default function HomeScreen() {
                 }
             });
 
+            // cap total unique task completions to fixed progress ceiling
             setAttemptedCount(Math.min(uniqueActivities.size, 7));
         }, (error) => {
             console.error("Error monitoring activity progress: ", error);
@@ -292,11 +284,11 @@ export default function HomeScreen() {
         return unsubscribe;
     }, [userData?.teamId, userData?.uid]);
 
-    // --- 5. IN-APP WELCOME NOTIFICATION TRIGGER ---
     useEffect(() => {
         if (userData && !globalHasShownWelcome) {
             globalHasShownWelcome = true;
 
+            // slide toast overlay down using parallel native transforms
             Animated.parallel([
                 Animated.timing(notificationY, {
                     toValue: Platform.OS === 'ios' ? 60 : 40,
@@ -327,7 +319,6 @@ export default function HomeScreen() {
         }
     }, [userData]);
 
-    // --- 6. SUBMISSION ---
     const handleAnswer = async (selectedOption: string) => {
         if (!trivia || !userData) return;
 
@@ -343,6 +334,7 @@ export default function HomeScreen() {
                 SubmittedAt: Timestamp.now()
             });
 
+            // increment global scoreboard atomically on firestore side
             if (isCorrect && userData.teamId) {
                 const teamRef = doc(db_cloud, "MS_Team", userData.teamId);
                 await updateDoc(teamRef, {
@@ -361,14 +353,8 @@ export default function HomeScreen() {
         }
     };
 
-    if (!fontsLoaded) return null;
-
     return (
-        /* Dynamic Theme Background Image Swap */
         <ImageBackground source={currentTheme.backgroundImage} style={styles.background}>
-            <Stack.Screen options={{ headerShown: false }} />
-
-            {/* --- IN-APP NOTIFICATION TOAST OVERLAY --- */}
             <Animated.View style={[
                 styles.notificationToast, 
                 { transform: [{ translateY: notificationY }], opacity: notificationOpacity }
@@ -380,7 +366,6 @@ export default function HomeScreen() {
                 <Text style={styles.notificationText}>Welcome back! Let's complete more activities today! 🚀</Text>
             </Animated.View>
             
-            {/* Top Bar translucent box configuration left untouched */}
             <View style={styles.headerWrapper}>
                 <SafeAreaView edges={['top']}>
                     <View style={styles.topBar}>
@@ -406,13 +391,12 @@ export default function HomeScreen() {
 
             <SafeAreaView style={styles.safeArea} edges={['left', 'right', 'bottom']}>
                 <ScrollView 
-                    testID="homeScrollView" // 🌟 ADDED FOR DETOX SCROLLING
+                    testID="homeScrollView"
                     showsVerticalScrollIndicator={false} 
                     contentContainerStyle={styles.mainScroll}
                     keyboardShouldPersistTaps="handled"
                 >
                     
-                    {/* --- USER INFO ROW (Dynamic colors applied) --- */}
                     <View style={styles.userInfoRow}>
                         <View>
                             <Text style={[styles.welcomeText, { color: currentTheme.textColor }]}>Welcome,</Text>
@@ -428,7 +412,6 @@ export default function HomeScreen() {
                         </View>
                     </View>
 
-                    {/* --- FLOATING SECTION TITLE (Dynamic color applied) --- */}
                     <Text style={[styles.sectionTitle, { color: currentTheme.textColor }]}>Trivia Challenge</Text>
                     {loading ? (
                         <ActivityIndicator size="large" color="#4FC3F7" style={{ marginTop: 20 }} />
@@ -465,7 +448,6 @@ export default function HomeScreen() {
                         </View>
                     )}
 
-                    {/* --- FLOATING SECTION TITLE (Dynamic color applied) --- */}
                     <Text style={[styles.sectionTitle, { color: currentTheme.textColor }]}>Engineering Challenges</Text>
                     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.horizontalScrollContent}>
                         {engineeringChallenges.map(item => (
@@ -473,13 +455,23 @@ export default function HomeScreen() {
                         ))}
                     </ScrollView>
 
-                    {/* --- FLOATING SECTION TITLE (Dynamic color applied) --- */}
                     <Text style={[styles.sectionTitle, { color: currentTheme.textColor }]}>Health & Medical Challenges</Text>
                     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.horizontalScrollContent}>
                         {healthChallenges.map(item => (
                             <ChallengeCard key={item.id} item={item} isExpanded={expandedId === item.id} onExpand={setExpandedId} router={router} />
                         ))}
                     </ScrollView>
+
+                    <View style={styles.adContainer}>
+                        <BannerAd
+                            unitId={adUnitId}
+                            size={BannerAdSize.ANCHORED_ADAPTIVE_BANNER}
+                            requestOptions={{
+                                requestNonPersonalizedAdsOnly: true,
+                            }}
+                            onAdFailedToLoad={(error) => console.log('Ad banner load failure: ', error)}
+                        />
+                    </View>
                 </ScrollView>
 
                 <View style={styles.bottomTabs}>
@@ -500,6 +492,8 @@ export default function HomeScreen() {
         </ImageBackground>
     );
 }
+
+// ─── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
     background: { flex: 1 },
@@ -551,4 +545,6 @@ const styles = StyleSheet.create({
     notificationBadge: { backgroundColor: '#4FC3F7', paddingHorizontal: 6, paddingVertical: 3, borderRadius: 6, flexDirection: 'row', alignItems: 'center', marginRight: 10 },
     notificationBadgeText: { color: '#FFF', fontSize: 9, fontFamily: 'BalsamiqSans_700Bold', marginLeft: 3 },
     notificationText: { color: '#FFF', fontSize: 13, fontFamily: 'BalsamiqSans_400Regular', flex: 1 },
+    /* centers and adjusts the banner layout cleanly inside the scrolling container */
+    adContainer: { alignItems: 'center', marginVertical: 10, width: '100%' },
 });

@@ -1,10 +1,5 @@
-import {
-    BalsamiqSans_400Regular,
-    BalsamiqSans_700Bold,
-    useFonts,
-} from '@expo-google-fonts/balsamiq-sans';
 import { Ionicons } from '@expo/vector-icons';
-import { Stack, useRouter } from 'expo-router';
+import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
     ActivityIndicator,
@@ -21,7 +16,6 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-// --- FIREBASE IMPORTS ---
 import { getAuth } from 'firebase/auth';
 import {
     collection,
@@ -34,13 +28,11 @@ import {
 } from 'firebase/firestore';
 import { db_cloud } from '../services/firebase_config';
 
-// --- THEME IMPORTS ---
 import { themes } from '../theme/theme';
 import { useTheme } from '../theme/theme_context';
 
 const { width } = Dimensions.get('window');
 
-// --- GRID MEMBER CARD COMPONENT ---
 const MemberGridCard = React.memo(({ item }: { item: any }) => (
     <View style={styles.smallMemberCard}>
         <Image source={require('../assets/images/User.png')} style={styles.smallAvatar} />
@@ -52,15 +44,14 @@ const MemberGridCard = React.memo(({ item }: { item: any }) => (
     </View>
 ));
 
+// ─── Per-screen content ───────────────────────────────────────────────────────
+
 export default function MembersScreen() {
     const router = useRouter();
-    const [fontsLoaded] = useFonts({ BalsamiqSans_400Regular, BalsamiqSans_700Bold });
 
-    // --- CONSUME GLOBAL THEME CONTEXT ---
     const { isDarkMode } = useTheme();
     const currentTheme = isDarkMode ? themes.dark : themes.light;
 
-    // --- STATES ---
     const [userData, setUserData] = useState<any>(null);
     const [teamData, setTeamData] = useState<any>(null);
     const [otherMembers, setOtherMembers] = useState<any[]>([]);
@@ -69,7 +60,6 @@ export default function MembersScreen() {
     const [userTeamId, setUserTeamId] = useState<string>('');
     const [attemptedCount, setAttemptedCount] = useState(0);
 
-    // --- 1. SYNC ALL DATA FROM FIREBASE ---
     useEffect(() => {
         let isMounted = true;
         const fetchData = async () => {
@@ -91,10 +81,12 @@ export default function MembersScreen() {
                 const tData = teamDoc.exists() ? teamDoc.data() : {};
                 
                 const rawName = tData.teamName || "Un";
+                // enforce standard team prefix naming convention
                 const cleanTeamName = rawName.toLowerCase().startsWith("team") 
                     ? rawName 
                     : `Team ${rawName}`;
 
+                // query remaining group roster while filtering out current user id
                 const membersQuery = query(collection(db_cloud, "MS_Student"), where("teamID", "==", teamID));
                 const membersSnap = await getDocs(membersQuery);
                 const membersList = membersSnap.docs
@@ -109,6 +101,7 @@ export default function MembersScreen() {
                 const attemptsSnap = await getDocs(collection(db_cloud, "MS_Team", teamID, "FC_Attempt"));
                 let totalAcc = 0, totalWork = 0, count = 0;
 
+                // parse and reduce history attempts into profile performance metrics
                 attemptsSnap.forEach((doc) => {
                     const res = doc.data().FC_Scoring_Result;
                     if (res) {
@@ -159,7 +152,6 @@ export default function MembersScreen() {
         return () => { isMounted = false; };
     }, []);
 
-    // --- 2. PROGRESS TRACKING LOGIC ---
     useEffect(() => {
         const auth = getAuth();
         const user = auth.currentUser;
@@ -179,6 +171,7 @@ export default function MembersScreen() {
                 }
             });
 
+            // evaluate unique task completions and cap progress bar layout ceiling
             setAttemptedCount(Math.min(uniqueActivities.size, 7));
         }, (error) => {
             console.error("Error monitoring activity progress on members tab: ", error);
@@ -191,9 +184,8 @@ export default function MembersScreen() {
         Alert.alert("Information", "Please contact a teacher to change your information");
     };
 
-    if (!fontsLoaded || loading) {
+    if (loading) {
         return (
-            /* Adaptive background color for initial loader view */
             <View style={[styles.loader, { backgroundColor: isDarkMode ? '#141414' : '#F3F0E9' }]}>
                 <ActivityIndicator size="large" color="#00E5FF" />
             </View>
@@ -201,11 +193,8 @@ export default function MembersScreen() {
     }
 
     return (
-        /* Dynamic Background Image Swap */
         <ImageBackground source={currentTheme.backgroundImage} style={styles.background}>
-            <Stack.Screen options={{ headerShown: false }} />
-
-            {/* --- TOP BAR --- */}
+            
             <View style={styles.headerWrapper}>
                 <SafeAreaView edges={['top']}>
                     <View style={styles.topBar}>
@@ -228,7 +217,6 @@ export default function MembersScreen() {
             <SafeAreaView style={styles.safeArea} edges={['left', 'right', 'bottom']}>
                 <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.mainScroll}>
 
-                    {/* --- ROSTER HEADER (Dynamic colors applied) --- */}
                     <View style={styles.rosterHeader}>
                         <View style={styles.titleRow}>
                             <Text style={[styles.rosterTitle, { color: currentTheme.textColor }]}>Member Roster</Text>
@@ -241,7 +229,6 @@ export default function MembersScreen() {
                         </View>
                     </View>
 
-                    {/* Cards remain light theme layout */}
                     <View style={styles.profileCard}>
                         <Image source={require('../assets/images/User.png')} style={styles.profileAvatar} />
                         <View style={styles.profileInfo}>
@@ -261,7 +248,6 @@ export default function MembersScreen() {
                         ))}
                     </View>
 
-                    {/* --- FLOATING SECTION TITLE (Dynamic color applied) --- */}
                     <Text style={[styles.sectionTitle, { color: currentTheme.textColor }]}>Performance</Text>
                     
                     <View style={styles.performanceCard}>
@@ -288,7 +274,6 @@ export default function MembersScreen() {
 
                 </ScrollView>
 
-                {/* --- BOTTOM TABS --- */}
                 <View style={styles.bottomTabs}>
                     <TouchableOpacity style={styles.tabItem} onPress={() => router.push('/home')}>
                         <Image source={require('../assets/images/Home.png')} style={styles.tabIcon} />
@@ -308,6 +293,8 @@ export default function MembersScreen() {
         </ImageBackground>
     );
 }
+
+// ─── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
     background: { flex: 1 },

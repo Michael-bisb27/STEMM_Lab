@@ -1,10 +1,5 @@
-import {
-    BalsamiqSans_400Regular,
-    BalsamiqSans_700Bold,
-    useFonts,
-} from '@expo-google-fonts/balsamiq-sans';
 import { Ionicons } from '@expo/vector-icons';
-import { Stack, useRouter } from 'expo-router';
+import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
     ActivityIndicator,
@@ -20,17 +15,14 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-// --- FIREBASE IMPORTS ---
 import { collection, onSnapshot } from 'firebase/firestore';
 import { db_cloud } from '../../services/firebase_config';
 
-// --- THEME IMPORTS ---
 import { themes } from '../../theme/theme';
 import { useTheme } from '../../theme/theme_context';
 
 const { width } = Dimensions.get('window');
 
-// UPDATED INTERFACE PROPERTY
 interface TeamItem {
     id: string;
     name: string;
@@ -40,24 +32,20 @@ interface TeamItem {
     teamScore: number;
 }
 
+// ─── Per-screen content ───────────────────────────────────────────────────────
+
 export default function TeacherTeamsScreen() {
     const router = useRouter();
-    const [fontsLoaded] = useFonts({ BalsamiqSans_400Regular, BalsamiqSans_700Bold });
 
-    // --- CONSUME GLOBAL THEME CONTEXT ---
     const { isDarkMode } = useTheme();
-
-    // --- RESOLVE ACTIVE CONFIG FROM THEME ---
     const currentTheme = isDarkMode ? themes.dark : themes.light;
 
-    // --- STATES ---
     const [teams, setTeams] = useState<TeamItem[]>([]);
     const [filteredTeams, setFilteredTeams] = useState<TeamItem[]>([]);
     const [classList, setClassList] = useState<string[]>([]);
     const [selectedClass, setSelectedClass] = useState<string>('All');
     const [loading, setLoading] = useState<boolean>(true);
 
-    // --- LIVE COMBINED STREAM FOR TEAMS & ATTEMPTS ---
     useEffect(() => {
         let teamsData: any[] = [];
         let attemptsData: any[] = [];
@@ -67,7 +55,7 @@ export default function TeacherTeamsScreen() {
         const combineAndProcessData = () => {
             if (!teamsLoaded || !attemptsLoaded) return;
 
-            // 1. Group and count attempts matching each unique TeamID
+            // map cross-collection database telemetry to dynamically calculate total attempt metrics
             const attemptCounts: Record<string, number> = {};
             attemptsData.forEach((attempt) => {
                 const teamId = attempt.TeamID;
@@ -78,7 +66,6 @@ export default function TeacherTeamsScreen() {
 
             const uniqueClasses = new Set<string>();
             const fetchedTeams: TeamItem[] = teamsData.map((team) => {
-                // Prioritizes active classroom section codes first
                 let section = team.classSection || team.gradeLevel || team.category || "5a";
                 const lowerSection = section.toLowerCase();
                 
@@ -95,22 +82,19 @@ export default function TeacherTeamsScreen() {
                     name: team.teamName || "Unnamed Team",
                     classSection: section,
                     discriminator: team.teamDiscriminator || "0000",
-                    attemptsMade: attemptCounts[team.id] || 0, // Injected Dynamic Count sum
+                    attemptsMade: attemptCounts[team.id] || 0, 
                     teamScore: team.teamScore || 0
                 };
             });
 
-            // Clean array sorting alphabetically for the class section filters
             const sortedClasses = Array.from(uniqueClasses).sort();
             setClassList(['All', ...sortedClasses]);
             
-            // Sort teams cleanly by name
             fetchedTeams.sort((a, b) => a.name.localeCompare(b.name));
             setTeams(fetchedTeams);
             setLoading(false);
         };
 
-        // Stream 1: MS_Team Collection Listener
         const unsubscribeTeams = onSnapshot(collection(db_cloud, "MS_Team"), (snapshot) => {
             teamsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
             teamsLoaded = true;
@@ -120,7 +104,6 @@ export default function TeacherTeamsScreen() {
             setLoading(false);
         });
 
-        // Stream 2: FC_Attempt Collection Listener
         const unsubscribeAttempts = onSnapshot(collection(db_cloud, "FC_Attempt"), (snapshot) => {
             attemptsData = snapshot.docs.map(doc => doc.data());
             attemptsLoaded = true;
@@ -135,7 +118,6 @@ export default function TeacherTeamsScreen() {
         };
     }, []);
 
-    // --- LIVE FILTERING LOGIC ---
     useEffect(() => {
         if (selectedClass === 'All') {
             setFilteredTeams(teams);
@@ -144,7 +126,7 @@ export default function TeacherTeamsScreen() {
         }
     }, [selectedClass, teams]);
 
-    if (!fontsLoaded || loading) {
+    if (loading) {
         return (
             <View style={[styles.loader, { backgroundColor: isDarkMode ? '#121212' : '#F3F0E9' }]}>
                 <ActivityIndicator size="large" color="#00E5FF" />
@@ -154,9 +136,7 @@ export default function TeacherTeamsScreen() {
 
     return (
         <ImageBackground source={currentTheme.backgroundImage} style={styles.background}>
-            <Stack.Screen options={{ headerShown: false }} />
-
-            {/* --- FIXED TOP HEADER MENU BAR --- */}
+            
             <View style={styles.headerWrapper}>
                 <SafeAreaView edges={['top']}>
                     <View style={styles.topBar}>
@@ -180,7 +160,6 @@ export default function TeacherTeamsScreen() {
                     
                     <Text style={[styles.sectionTitle, { color: currentTheme.textColor }]}>Classroom Roster Filters</Text>
 
-                    {/* --- HORIZONTAL FILTER TRACK BAR --- */}
                     <ScrollView 
                         horizontal 
                         showsHorizontalScrollIndicator={false} 
@@ -205,7 +184,6 @@ export default function TeacherTeamsScreen() {
 
                     <Text style={[styles.sectionSubtitle, { color: currentTheme.textColor }]}>Project Teams ({filteredTeams.length})</Text>
 
-                    {/* --- MAIN TEAMS SELECTION INTERFACE LIST --- */}
                     <View style={styles.teamsListContainer}>
                         {filteredTeams.length === 0 ? (
                             <View style={styles.emptyContainerCard}>
@@ -228,7 +206,6 @@ export default function TeacherTeamsScreen() {
                                     <View style={styles.teamMetadataBlock}>
                                         <Text style={styles.teamNameText} numberOfLines={1}>{item.name}</Text>
                                         <Text style={styles.teamSubText}>ID Badge: #{item.discriminator} • grade {item.classSection}</Text>
-                                        {/* CHANGED LABEL TEXT AND VARIABLE REFERENCE HERE */}
                                         <Text style={styles.teamTelemetryText}>Attempts Made: {item.attemptsMade}</Text>
                                     </View>
 
@@ -244,7 +221,6 @@ export default function TeacherTeamsScreen() {
 
                 </ScrollView>
 
-                {/* --- NAVIGATION TAB FOOTER BOTTOM TABS BAR --- */}
                 <View style={styles.bottomTabs}>
                     <TouchableOpacity style={styles.tabItem} onPress={() => router.push('/(teacher)/home')}>
                         <Image source={require('../../assets/images/Home.png')} style={styles.tabIcon} />
@@ -264,6 +240,8 @@ export default function TeacherTeamsScreen() {
         </ImageBackground>
     );
 }
+
+// ─── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
     background: { flex: 1 },

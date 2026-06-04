@@ -1,21 +1,21 @@
-import {
-  BalsamiqSans_400Regular,
-  BalsamiqSans_700Bold,
-  useFonts
-} from '@expo-google-fonts/balsamiq-sans';
-import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
+import { useRouter } from 'expo-router';
+import React, { useRef, useState } from 'react';
 import {
   Image,
   ImageBackground,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
   SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
-  View
+  View,
+  useWindowDimensions
 } from 'react-native';
 
 // ─── Per-screen content ───────────────────────────────────────────────────────
+
 const INTRO_DATA = [
   {
     background: require('../assets/images/SplashBG.png'),
@@ -39,29 +39,79 @@ const INTRO_DATA = [
 
 export default function IntroScreen() {
   const router = useRouter();
-  const { index } = useLocalSearchParams<{ index: string }>();
+  const { width } = useWindowDimensions();
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const scrollRef = useRef<ScrollView>(null);
 
-  // Convert route param "1" / "2" / "3" → 0-based array index
-  const currentIndex = Math.max(0, Math.min(parseInt(index ?? '1', 10) - 1, INTRO_DATA.length - 1));
+  const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const offsetX = event.nativeEvent.contentOffset.x;
+    // calc active slide index from scroll offset
+    const index = Math.round(offsetX / width);
+    if (index !== currentIndex && index >= 0 && index < INTRO_DATA.length) {
+      setCurrentIndex(index);
+    }
+  };
 
-  const [fontsLoaded] = useFonts({ BalsamiqSans_400Regular, BalsamiqSans_700Bold });
-  if (!fontsLoaded) return null;
-
-  const { background, icon, title, subtitle } = INTRO_DATA[currentIndex];
-  const isLast = currentIndex === INTRO_DATA.length - 1;
+  const handleDotPress = (index: number) => {
+    scrollRef.current?.scrollTo({ x: index * width, animated: true });
+  };
 
   return (
-    <ImageBackground source={background} style={styles.background} resizeMode="cover">
-      <Stack.Screen options={{ headerShown: false }} />
+    <View style={styles.root}>
+      <ScrollView
+        ref={scrollRef}
+        horizontal
+        pagingEnabled
+        showsHorizontalScrollIndicator={false}
+        onScroll={handleScroll}
+        scrollEventThrottle={16}
+        style={styles.mainScroll}
+      >
+        {INTRO_DATA.map((item, index) => {
+          const isLast = index === INTRO_DATA.length - 1;
 
-      {/* Overlay as absolute sibling — pointerEvents="none" keeps it invisible to Detox
-          while still rendering the dark tint visually */}
-      <View style={styles.overlay} pointerEvents="none" />
+          return (
+            <ImageBackground 
+              key={index} 
+              source={item.background} 
+              style={[styles.background, { width }]} 
+              resizeMode="cover"
+            >
+              <View style={styles.overlay} pointerEvents="none" />
 
-      <SafeAreaView style={styles.container}>
+              <SafeAreaView style={styles.container}>
+                {/* placeholder to match fixed logo layout */}
+                <View style={styles.topSectionPlaceholder} />
 
-        {/* TOP SECTION: Logo */}
-        <View style={styles.topSection}>
+                <View style={styles.bottomSection}>
+                  <Image source={item.icon} style={styles.pathIcon} resizeMode="contain" />
+
+                  <Text style={styles.title}>{item.title}</Text>
+                  <Text style={styles.subtitle}>{item.subtitle}</Text>
+
+                  <View style={styles.paginationPlaceholder} />
+
+                  {isLast ? (
+                    <TouchableOpacity
+                      testID="continueButton"
+                      style={styles.continueButton}
+                      onPress={() => router.push('/signup_1')}
+                    >
+                      <Text style={styles.continueButtonText}>Continue</Text>
+                    </TouchableOpacity>
+                  ) : (
+                    <View style={styles.spacer} />
+                  )}
+                </View>
+              </SafeAreaView>
+            </ImageBackground>
+          );
+        })}
+      </ScrollView>
+
+      {/* box-none lets touches pass straight through overlay to scrollview */}
+      <SafeAreaView style={styles.fixedOverlay} pointerEvents="box-none">
+        <View style={styles.topSection} pointerEvents="none">
           <Image
             source={require('../assets/images/Logo.png')}
             style={styles.logo}
@@ -69,66 +119,45 @@ export default function IntroScreen() {
           />
         </View>
 
-        {/* BOTTOM SECTION */}
-        <View style={styles.bottomSection}>
-          <ScrollView
-            testID="bottomScrollView"
-            contentContainerStyle={styles.bottomScrollContent}
-            showsVerticalScrollIndicator={false}
-          >
-            {/* Icon */}
-            <Image source={icon} style={styles.pathIcon} resizeMode="contain" />
-
-            {/* Typography */}
-            <Text style={styles.title}>{title}</Text>
-            <Text style={styles.subtitle}>{subtitle}</Text>
-
-            {/* Pagination Dots */}
-            <View style={styles.paginationContainer}>
-              {INTRO_DATA.map((_, i) =>
-                i === currentIndex ? (
-                  <View key={i} style={[styles.dot, styles.activeDot]} />
-                ) : (
-                  <TouchableOpacity
-                    key={i}
-                    testID={`intro-dot-${i}`}
-                    onPress={() => router.push({ pathname: '/intro_card', params: { index: i + 1 } } as any)}
-                  >
-                    <View style={styles.dot} />
-                  </TouchableOpacity>
-                )
-              )}
-            </View>
-
-            {/* Last screen shows Continue button; others show a spacer */}
-            {isLast ? (
-              <TouchableOpacity
-                testID="continueButton"
-                style={styles.continueButton}
-                onPress={() => router.push('/signup_1')}
-              >
-                <Text style={styles.continueButtonText}>Continue</Text>
-              </TouchableOpacity>
-            ) : (
-              <View style={styles.spacer} />
+        <View style={styles.fixedBottomSection} pointerEvents="box-none">
+          <View style={styles.paginationContainer}>
+            {INTRO_DATA.map((_, i) =>
+              i === currentIndex ? (
+                <View key={i} style={[styles.dot, styles.activeDot]} />
+              ) : (
+                <TouchableOpacity
+                  key={i}
+                  testID={`intro-dot-${i}`}
+                  onPress={() => handleDotPress(i)}
+                >
+                  <View style={styles.dot} />
+                </TouchableOpacity>
+              )
             )}
-          </ScrollView>
+          </View>
+          <View style={styles.fixedUnderDotsSpacer} pointerEvents="none" />
         </View>
-
       </SafeAreaView>
-    </ImageBackground>
+    </View>
   );
 }
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
+
 const styles = StyleSheet.create({
+  root: {
+    flex: 1,
+    backgroundColor: '#000000',
+  },
+  mainScroll: {
+    flex: 1,
+  },
   background: {
     flex: 1,
-    width: '100%',
     height: '100%',
   },
   overlay: {
-    ...StyleSheet.absoluteFillObject, // covers the full screen as a sibling
+    ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0, 0, 0, 0.45)',
   },
   container: {
@@ -137,24 +166,37 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingBottom: 20,
   },
+  fixedOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'space-between',
+    paddingHorizontal: 24,
+    paddingBottom: 20,
+  },
   topSection: {
-    // Remove flex: 1 so it doesn't greedily push everything down
     alignItems: 'center',
-    marginTop: 80, // Reduced from 160 to give the bottom elements breathing room
+    marginTop: 140, 
     marginBottom: 20,
+  },
+  topSectionPlaceholder: {
+    marginTop: 140,
+    marginBottom: 20,
+    height: 100,
   },
   logo: {
     width: 100,
     height: 100,
   },
   bottomSection: {
-    flex: 1, // CRITICAL: This forces the container to stay within the viewport limits
     width: '100%',
-  },
-  bottomScrollContent: {
     alignItems: 'center',
+    justifyContent: 'flex-end',
     paddingBottom: 20,
-    flexGrow: 1, // Ensures content can layout properly inside the bounded ScrollView
+  },
+  fixedBottomSection: {
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    paddingBottom: 20,
   },
   pathIcon: {
     width: 50,
@@ -184,6 +226,10 @@ const styles = StyleSheet.create({
     marginBottom: 30,
     gap: 16,
   },
+  paginationPlaceholder: {
+    height: 12,
+    marginBottom: 30,
+  },
   dot: {
     width: 12,
     height: 12,
@@ -203,6 +249,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 10,
+    height: 40,
   },
   continueButtonText: {
     fontFamily: 'BalsamiqSans_700Bold',
@@ -210,6 +257,10 @@ const styles = StyleSheet.create({
     color: '#000000',
   },
   spacer: {
+    height: 50,
+    width: '100%',
+  },
+  fixedUnderDotsSpacer: {
     height: 50,
     width: '100%',
   },

@@ -10,7 +10,7 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.anonymous.STEMM-Lab",
+      "bundleIdentifier": "com.michaelbisb27.stemmlab",
       "googleServicesFile": "./GoogleService-Info.plist"
     },
     "android": {
@@ -41,6 +41,10 @@
           "backgroundColor": "#ffffff",
           "dark": {
             "backgroundColor": "#000000"
+          },
+          "headers": {
+            "Cross-Origin-Embedder-Policy": "credentialless",
+            "Cross-Origin-Opener-Policy": "same-origin"
           }
         }
       ],
@@ -48,7 +52,17 @@
       "expo-sqlite",
       "@react-native-firebase/app",
       "@react-native-firebase/crashlytics",
-      "@react-native-firebase/perf"
+      "@react-native-firebase/perf",
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "useFrameworks": "static",
+            "deploymentTarget": "15.1"
+          }
+        }
+      ],
+      "./plugins/withNonModularHeaders"
     ],
     "experiments": {
       "typedRoutes": true,
@@ -60,5 +74,9 @@
         "projectId": "bc99b8ba-1145-4b59-b3d3-a940075b00bc"
       }
     }
-  }
+  },
+  "react-native-google-mobile-ads": {
+          "androidAppId": "ca-app-pub-3940256099942544~3347511713",
+          "iosAppId": "ca-app-pub-3940256099942544~1458002511"
+        }
 }

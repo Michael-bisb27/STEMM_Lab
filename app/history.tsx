@@ -1,10 +1,5 @@
-import {
-    BalsamiqSans_400Regular,
-    BalsamiqSans_700Bold,
-    useFonts,
-} from '@expo-google-fonts/balsamiq-sans';
 import { Ionicons } from '@expo/vector-icons';
-import { Stack, useRouter } from 'expo-router';
+import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
     ActivityIndicator,
@@ -22,7 +17,6 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-// --- FIREBASE IMPORTS ---
 import { getAuth } from 'firebase/auth';
 import {
     collection,
@@ -36,7 +30,6 @@ import {
 } from 'firebase/firestore';
 import { db_cloud } from '../services/firebase_config';
 
-// --- THEME IMPORTS ---
 import { themes } from '../theme/theme';
 import { useTheme } from '../theme/theme_context';
 
@@ -46,7 +39,6 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
     UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
-// Helper to map Activity Names to Assets
 const IMAGE_MAP: { [key: string]: any } = {
     'Parachute': require('../assets/images/parachute_snippet.png'),
     'Sound': require('../assets/images/sound_snippet.png'),
@@ -58,21 +50,19 @@ const IMAGE_MAP: { [key: string]: any } = {
     'Default': require('../assets/images/reaction_snippet.png'),
 };
 
+// ─── Per-screen content ───────────────────────────────────────────────────────
+
 export default function ActivityScreen() {
     const router = useRouter();
-    const [fontsLoaded] = useFonts({ BalsamiqSans_400Regular, BalsamiqSans_700Bold });
 
-    // --- CONSUME GLOBAL THEME CONTEXT ---
     const { isDarkMode } = useTheme();
     const currentTheme = isDarkMode ? themes.dark : themes.light;
 
-    // --- STATES ---
     const [userData, setUserData] = useState<any>(null);
     const [attempts, setAttempts] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [expandedId, setExpandedId] = useState<string | null>(null);
 
-    // --- 1. SYNC DATA ---
     useEffect(() => {
         let isMounted = true;
         const auth = getAuth();
@@ -105,6 +95,7 @@ export default function ActivityScreen() {
                             orderBy("attemptAt", "desc")
                         );
 
+                        // real-time subscriber for specific team's attempt rows
                         unsubscribeAttempts = onSnapshot(q, async (snapshot) => {
                             try {
                                 const attemptList = await Promise.all(
@@ -112,6 +103,7 @@ export default function ActivityScreen() {
                                         const attemptData = d.data();
                                         const attemptId = d.id;
 
+                                        // sequential sub-fetches to map activity name & details
                                         const actDoc = await getDoc(doc(db_cloud, "MS_Activity", attemptData.ActivityID));
                                         const actData = actDoc.exists() ? actDoc.data() : { activityName: "Unknown Activity", subjectArea: "General" };
 
@@ -182,6 +174,7 @@ export default function ActivityScreen() {
     }, []);
 
     const toggleExpand = (id: string) => {
+        // trigger spring transition on layout bounding changes
         LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
         setExpandedId(expandedId === id ? null : id);
     };
@@ -191,8 +184,7 @@ export default function ActivityScreen() {
         return key ? IMAGE_MAP[key] : IMAGE_MAP['Default'];
     };
 
-    if (!fontsLoaded || loading) {
-        /* Adaptive background color for loader container to match initial rendering state */
+    if (loading) {
         return (
             <View style={[styles.loader, { backgroundColor: isDarkMode ? '#141414' : '#F3F0E9' }]}>
                 <ActivityIndicator size="large" color="#00E5FF" />
@@ -201,11 +193,8 @@ export default function ActivityScreen() {
     }
 
     return (
-        /* Dynamic Theme Background Image Swap */
         <ImageBackground source={currentTheme.backgroundImage} style={styles.background}>
-            <Stack.Screen options={{ headerShown: false }} />
-
-            {/* --- TOP BAR --- */}
+            
             <View style={styles.headerWrapper}>
                 <SafeAreaView edges={['top']}>
                     <View style={styles.topBar}>
@@ -222,7 +211,6 @@ export default function ActivityScreen() {
             <SafeAreaView style={styles.safeArea} edges={['left', 'right', 'bottom']}>
                 <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.mainScroll}>
 
-                    {/* --- TITLE CONTAINER (Dynamic text color applied) --- */}
                     <View style={styles.titleContainer}>
                         <Text style={[styles.sectionTitle, { color: currentTheme.textColor }]}>Activity Log</Text>
                         <View style={[styles.titleUnderline, { backgroundColor: currentTheme.textColor }]} />
@@ -281,7 +269,6 @@ export default function ActivityScreen() {
                                 );
                             })
                         ) : (
-                            /* Empty UI Fallback (Dynamic color applied) */
                             <View style={styles.emptyContainer}>
                                 <Text style={[styles.emptyText, { color: currentTheme.textColor }]}>No activities done yet</Text>
                             </View>
@@ -307,6 +294,8 @@ export default function ActivityScreen() {
         </ImageBackground>
     );
 }
+
+// ─── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
     background: { flex: 1 },

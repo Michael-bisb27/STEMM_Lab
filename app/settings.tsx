@@ -1,10 +1,5 @@
-import {
-    BalsamiqSans_400Regular,
-    BalsamiqSans_700Bold,
-    useFonts,
-} from '@expo-google-fonts/balsamiq-sans';
 import { Ionicons } from '@expo/vector-icons';
-import { Stack, useRouter } from 'expo-router';
+import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
     ActivityIndicator,
@@ -23,12 +18,10 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-// --- FIREBASE IMPORTS ---
 import { getAuth } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
 import { db_cloud } from '../services/firebase_config';
 
-// --- THEME IMPORTS ---
 import { themes } from '../theme/theme';
 import { useTheme } from '../theme/theme_context';
 
@@ -44,21 +37,16 @@ const stemmSensors = [
     { id: 's7', name: 'Proximity Sensor' },
 ];
 
+// ─── Per-screen content ───────────────────────────────────────────────────────
+
 export default function SettingsScreen() {
     const router = useRouter();
-    const [fontsLoaded] = useFonts({ BalsamiqSans_400Regular, BalsamiqSans_700Bold });
-
-    // --- CONSUME GLOBAL THEME CONTEXT ---
     const { isDarkMode, setIsDarkMode } = useTheme();
-
-    // --- RESOLVE ACTIVE CONFIG FROM THEME.JS ---
     const currentTheme = isDarkMode ? themes.dark : themes.light;
 
-    // --- STATES ---
     const [userData, setUserData] = useState<any>(null);
-    const [isCalibrating, setIsCalibrating] = useState(false); 
+    const [isCalibrating, setUserCalibrating] = useState(false); 
 
-    // --- 1. SYNC PROFILE & TEAM DATA ---
     useEffect(() => {
         const fetchFullProfile = async () => {
             try {
@@ -74,6 +62,7 @@ export default function SettingsScreen() {
                         let teamName = "No Team";
                         let discriminator = "0000";
 
+                        // cascade fetch to resolve linked team info dynamically
                         if (sData.teamID && sData.teamID !== "WAITING_FOR_ASSIGNMENT") {
                             const teamDocRef = doc(db_cloud, "MS_Team", sData.teamID);
                             const teamSnap = await getDoc(teamDocRef);
@@ -104,32 +93,27 @@ export default function SettingsScreen() {
         fetchFullProfile();
     }, []);
 
-    // --- 2. HANDLERS ---
     const handleEditPress = () => {
         Alert.alert("Information", "Please contact a teacher to change your information");
     };
 
     const handleCalibrate = (sensorName: string) => {
-        setIsCalibrating(true);
+        setUserCalibrating(true);
         
+        // mock async sensor calibration delay
         setTimeout(() => {
-            setIsCalibrating(false);
+            setUserCalibrating(false);
             setTimeout(() => {
                 Alert.alert("Success", `${sensorName} working great!`);
             }, 100);
         }, 2000);
     };
 
-    if (!fontsLoaded) return null;
-
     return (
         <ImageBackground 
             source={currentTheme.backgroundImage} 
             style={styles.background}
         >
-            <Stack.Screen options={{ headerShown: false }} />
-            
-            {/* --- TOP BAR --- */}
             <View style={styles.headerWrapper}>
                 <SafeAreaView edges={['top']}>
                     <View style={styles.topBar}>
@@ -159,7 +143,6 @@ export default function SettingsScreen() {
             <SafeAreaView style={styles.safeArea} edges={['left', 'right', 'bottom']}>
                 <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.mainScroll}>
 
-                    {/* --- SETTINGS & PROFILE HEADER ROW --- */}
                     <View style={styles.sectionHeaderRow}>
                         <Text style={[styles.headerUnderlined, { color: currentTheme.textColor }]}>Settings</Text>
                         <View style={styles.profileHeaderGroup}>
@@ -182,7 +165,6 @@ export default function SettingsScreen() {
                         </View>
                     </View>
 
-                    {/* --- APP PREFERENCE --- */}
                     <Text style={[styles.rightHeaderUnderlined, { color: currentTheme.textColor }]}>App Preference</Text>
                     <View style={styles.preferenceRow}>
                         <Text style={[styles.preferenceText, { color: currentTheme.textColor }]}>Theme (Dark Mode)</Text>
@@ -194,7 +176,6 @@ export default function SettingsScreen() {
                         />
                     </View>
 
-                    {/* --- SENSOR LAB --- */}
                     <Text style={[styles.rightHeaderUnderlined, { color: currentTheme.textColor }]}>Sensor Lab</Text>
                     {stemmSensors.map((sensor) => (
                         <View key={sensor.id} style={styles.sensorRow}>
@@ -208,7 +189,6 @@ export default function SettingsScreen() {
                         </View>
                     ))}
 
-                    {/* --- CREDITS --- */}
                     <Text style={[styles.rightHeaderUnderlined, { color: currentTheme.textColor }]}>Credits</Text>
                     <View style={styles.creditsBox}>
                         <Text style={[styles.creditText, { color: currentTheme.textColor }]}>STEMM Lab Ver 1.0.0</Text>
@@ -217,7 +197,6 @@ export default function SettingsScreen() {
 
                 </ScrollView>
 
-                {/* --- BOTTOM TABS --- */}
                 <View style={styles.bottomTabs}>
                     <TouchableOpacity style={styles.tabItem} onPress={() => router.push('/home')}>
                         <Image source={require('../assets/images/Home.png')} style={styles.tabIcon} />
@@ -234,7 +213,6 @@ export default function SettingsScreen() {
                 </View>
             </SafeAreaView>
 
-            {/* --- CALIBRATION LOADING OVERLAY --- */}
             <Modal transparent visible={isCalibrating} animationType="fade">
                 <View style={styles.modalOverlay}>
                     <View style={styles.loadingBox}>
@@ -246,6 +224,8 @@ export default function SettingsScreen() {
         </ImageBackground>
     );
 }
+
+// ─── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
     background: { flex: 1 },

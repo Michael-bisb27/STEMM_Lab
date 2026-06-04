@@ -1,10 +1,5 @@
-import {
-    BalsamiqSans_400Regular,
-    BalsamiqSans_700Bold,
-    useFonts,
-} from '@expo-google-fonts/balsamiq-sans';
 import { Ionicons } from '@expo/vector-icons';
-import { Stack, useRouter } from 'expo-router';
+import { useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import {
     ActivityIndicator,
@@ -21,7 +16,6 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-// --- FIREBASE IMPORTS ---
 import { getAuth } from 'firebase/auth';
 import {
     collection,
@@ -34,39 +28,33 @@ import {
 } from 'firebase/firestore';
 import { db_cloud } from '../services/firebase_config';
 
-// --- THEME IMPORTS ---
 import { themes } from '../theme/theme';
 import { useTheme } from '../theme/theme_context';
 
 const { width } = Dimensions.get('window');
 
-// --- SESSION LOGGED IN FLAG ---
 let globalHasShownLeaderboardNotice = false;
+
+const { id: eng1, title: _1, fullTitle: _2, image: _3, route: _4 } = { id: '', title: '', fullTitle: '', image: 0, route: '' }; 
+
+// ─── Per-screen content ───────────────────────────────────────────────────────
 
 export default function LeaderboardScreen() {
     const router = useRouter();
-    const [fontsLoaded] = useFonts({
-        BalsamiqSans_400Regular,
-        BalsamiqSans_700Bold,
-    });
 
-    // --- CONSUME GLOBAL THEME CONTEXT ---
     const { isDarkMode } = useTheme();
     const currentTheme = isDarkMode ? themes.dark : themes.light;
 
-    // --- STATES ---
     const [leaderboard, setLeaderboard] = useState<any[]>([]);
     const [userTeamId, setUserTeamId] = useState<string>('');
     const [suggestions, setSuggestions] = useState<string[]>([]);
     const [loading, setLoading] = useState(true);
     const [attemptedCount, setAttemptedCount] = useState(0);
 
-    // --- CUSTOM SCROLLBAR LOGIC ---
     const [contentHeight, setContentHeight] = useState(1);
     const [containerHeight, setContainerHeight] = useState(1);
     const scrollY = useRef(new Animated.Value(0)).current;
 
-    // --- ANIMATION REFS FOR IN-APP NOTIFICATION ---
     const notificationY = useRef(new Animated.Value(-120)).current;
     const notificationOpacity = useRef(new Animated.Value(0)).current;
 
@@ -74,6 +62,7 @@ export default function LeaderboardScreen() {
         ? (containerHeight / contentHeight) * containerHeight
         : 0;
 
+    // map scroll position to custom scrollbar thumb track offset
     const scrollIndicatorOffset = Animated.multiply(
         scrollY,
         containerHeight / contentHeight
@@ -84,7 +73,6 @@ export default function LeaderboardScreen() {
         return n + (s[(v - 20) % 10] || s[v] || s[0]);
     };
 
-    // --- 1. REAL-TIME MULTI-COLLECTION STREAM COMBINATOR ---
     useEffect(() => {
         const auth = getAuth();
         const user = auth.currentUser;
@@ -92,6 +80,7 @@ export default function LeaderboardScreen() {
         let teamsCache: any[] = [];
         let scoresCache: any[] = [];
 
+        // manually join and aggregate collections to avoid complex firestore indexing
         const compileLeaderboard = () => {
             const compiledList: any[] = [];
 
@@ -99,6 +88,7 @@ export default function LeaderboardScreen() {
                 const teamResults = scoresCache.filter(score => score.TeamID === team.id);
                 const activityMap: Record<string, { maxScore: number; trials: number }> = {};
 
+                // extract only the highest score per unique activity id
                 teamResults.forEach((res) => {
                     const actId = res.ActivityID || "unknown_activity";
                     const score = (res.accuracyScore || 0) + (res.workScore || 0);
@@ -137,6 +127,7 @@ export default function LeaderboardScreen() {
                 });
             });
 
+            // tie-breaker rule: team with fewer attempts wins
             compiledList.sort((a, b) => {
                 if (b.points === a.points) {
                     return a.totalAttempts - b.totalAttempts; 
@@ -217,7 +208,6 @@ export default function LeaderboardScreen() {
         };
     }, []);
 
-    // --- 2. PROGRESS TRACKING LOGIC ---
     useEffect(() => {
         const auth = getAuth();
         const user = auth.currentUser;
@@ -245,13 +235,9 @@ export default function LeaderboardScreen() {
         return unsubscribe;
     }, [userTeamId]);
 
-    // --- 3. IN-APP WELCOME RANK NOTIFICATION TRIGGER ---
     useEffect(() => {
         if (leaderboard.length > 0 && !loading && !globalHasShownLeaderboardNotice) {
             globalHasShownLeaderboardNotice = true;
-
-            const myCurrentRank = leaderboard.find(t => t.id === userTeamId);
-            const rankPositionText = myCurrentRank ? getRankSuffix(myCurrentRank.rank) : "1st";
 
             Animated.parallel([
                 Animated.timing(notificationY, {
@@ -283,9 +269,8 @@ export default function LeaderboardScreen() {
         }
     }, [leaderboard, loading]);
 
-    if (!fontsLoaded || loading) {
+    if (loading) {
         return (
-            /* Adaptive background color for initial loader to prevent flashbangs */
             <View style={{flex: 1, justifyContent: 'center', backgroundColor: isDarkMode ? '#141414' : '#F3F0E9'}}>
                 <ActivityIndicator size="large" color="#00E5FF" />
             </View>
@@ -295,11 +280,7 @@ export default function LeaderboardScreen() {
     const myRankData = leaderboard.find(t => t.id === userTeamId) || leaderboard[0];
 
     return (
-        /* Dynamic Theme Background Image Swap */
         <ImageBackground source={currentTheme.backgroundImage} style={styles.background}>
-            <Stack.Screen options={{ headerShown: false }} />
-
-            {/* --- IN-APP NOTIFICATION TOAST OVERLAY --- */}
             <Animated.View style={[
                 styles.notificationToast, 
                 { transform: [{ translateY: notificationY }], opacity: notificationOpacity }
@@ -354,10 +335,8 @@ export default function LeaderboardScreen() {
                         </Text>
                     </View>
 
-                    {/* --- FLOATING SECTION TITLE (Dynamic color applied) --- */}
                     <Text style={[styles.sectionTitle, { color: currentTheme.textColor }]}>Leaderboard</Text>
 
-                    {/* --- LEADERBOARD MAIN CARD --- */}
                     <View style={styles.leaderboardMainCard}>
                         <View style={styles.leaderboardHeader}>
                              <Image source={require('../assets/images/First.png')} style={styles.medalIcon} />
@@ -402,7 +381,6 @@ export default function LeaderboardScreen() {
                         </View>
                     </View>
 
-                    {/* --- DYNAMIC SUMMARY CARD --- */}
                     <View style={styles.summaryCard}>
                         <View style={styles.cyanRankBox}>
                             <Text style={styles.cyanRankText}>{myRankData?.rank}</Text>
@@ -419,7 +397,6 @@ export default function LeaderboardScreen() {
 
                 </ScrollView>
 
-                {/* --- BOTTOM TABS --- */}
                 <View style={styles.bottomTabs}>
                     <TouchableOpacity style={styles.tabItem} onPress={() => router.push('/home')}>
                         <Image source={require('../assets/images/Home.png')} style={styles.tabIcon} />
@@ -439,6 +416,8 @@ export default function LeaderboardScreen() {
         </ImageBackground>
     );
 }
+
+// ─── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
     background: { flex: 1 },
