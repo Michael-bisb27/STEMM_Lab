@@ -41,6 +41,9 @@ import {
 } from 'firebase/firestore';
 import { db_cloud } from '../services/firebase_config';
 
+// --- LOCAL DATABASE UTILITIES IMPORT ---
+import { reactionOps } from '../database/db'; // Added to capture reflex parameters inside high-speed device arrays
+
 // --- THEME IMPORTS ---
 import { themes } from '../theme/theme';
 import { useTheme } from '../theme/theme_context';
@@ -188,6 +191,21 @@ export default function ReactionActivityScreen() {
                         setReactionTime(finalTraceTime);
                         setGameState('result');
                         showToast("Tracing complete!");
+
+                        // --- INJECT LOCAL SQLITE WRITER HOOK FOR PHASE 3 ---
+                        try {
+                            reactionOps.insertTrial({
+                                attempt_id: lastAttemptId || "UNKNOWN",
+                                member_number: currentMember,
+                                phase_number: phase,
+                                trial_number: trial,
+                                recorded_time: finalTraceTime,
+                                recorded_at: Date.now()
+                            });
+                        } catch (error) {
+                            console.error("Local database trace capture failure:", error);
+                        }
+
                         return 100;
                     }
                     return prev + 2.5; 
@@ -240,7 +258,8 @@ export default function ReactionActivityScreen() {
                     pathname: '/activity_finish',
                     params: {
                         activityId: ACTIVITY_ID,
-                        activityTitle: "Reaction Board Challenge"
+                        activityTitle: "Reaction Board Challenge",
+                        attemptId: lastAttemptId || "UNKNOWN" // Appended to parse cached files into comparison dashboards
                     }
                 });
             }, 1200);
@@ -319,6 +338,20 @@ export default function ReactionActivityScreen() {
             setReactionTime(computedTime);
             setGameState('result');
             showToast("Reaction Logged!");
+
+            // --- INJECT LOCAL SQLITE WRITER HOOK FOR PHASES 1 & 2 ---
+            try {
+                reactionOps.insertTrial({
+                    attempt_id: lastAttemptId || "UNKNOWN",
+                    member_number: currentMember,
+                    phase_number: phase,
+                    trial_number: trial,
+                    recorded_time: computedTime,
+                    recorded_at: Date.now()
+                });
+            } catch (error) {
+                console.error("Local database reaction speed capture failure:", error);
+            }
         } else if (gameState === 'waiting') {
             if (signalTimer.current) clearTimeout(signalTimer.current);
             setGameState('idle');

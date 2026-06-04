@@ -41,6 +41,9 @@ import {
 } from 'firebase/firestore';
 import { db_cloud } from '../services/firebase_config';
 
+// --- LOCAL DATABASE UTILITIES IMPORT ---
+import { earthquakeOps } from '../database/db'; // Added to route time-series parameters to device structures
+
 // --- THEME IMPORTS ---
 import { themes } from '../theme/theme';
 import { useTheme } from '../theme/theme_context';
@@ -224,10 +227,27 @@ export default function EarthquakeActivityScreen() {
                 ? runningTiltSumRef.current / readingsCountRef.current 
                 : 0;
 
-            setPeakDeviation(Math.round(computedMovecm * 10) / 10);
-            setAverageTiltDeflection(Math.round(computedAvgTilt * 10) / 10);
+            const finalDisplacement = Math.round(computedMovecm * 10) / 10;
+            const finalAngularTilt = Math.round(computedAvgTilt * 10) / 10;
+
+            setPeakDeviation(finalDisplacement);
+            setAverageTiltDeflection(finalAngularTilt);
             setGameState('result');
             showToast(`Simulation Complete: Design ${designNum}`);
+
+            // --- INJECT LOCAL SQLITE DATA LOGGER WRITER ---
+            try {
+                earthquakeOps.insertTrial({
+                    attempt_id: lastAttemptId || "UNKNOWN",
+                    member_number: currentMember,
+                    design_number: designNum,
+                    peak_displacement: finalDisplacement,
+                    angular_deflection: finalAngularTilt,
+                    recorded_at: Date.now()
+                });
+            } catch (error) {
+                console.error("Local SQLite database structure caching failed:", error);
+            }
         }, TEST_DURATION_MS);
     };
 
@@ -274,7 +294,8 @@ export default function EarthquakeActivityScreen() {
                     pathname: '/activity_finish',
                     params: {
                         activityId: ACTIVITY_ID,
-                        activityTitle: "Earthquake-Resistant Structure"
+                        activityTitle: "Earthquake-Resistant Structure",
+                        attemptId: lastAttemptId || "UNKNOWN" // Passed along to lock data onto our Dashboard summaries
                     }
                 });
             }, 1000);

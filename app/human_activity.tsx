@@ -43,6 +43,9 @@ import {
 } from 'firebase/firestore';
 import { db_cloud } from '../services/firebase_config';
 
+// --- LOCAL DATABASE UTILITIES IMPORT ---
+import { humanOps } from '../database/db'; // Added to handle isolated high-velocity telemetry logs
+
 // --- THEME IMPORTS ---
 import { themes } from '../theme/theme';
 import { useTheme } from '../theme/theme_context';
@@ -226,6 +229,21 @@ export default function HumanActivityScreen() {
             });
         } else {
             showToast("Movement Track Recorded!");
+
+            // --- INJECT LOCAL SQLITE TELEMETRY SNAPSHOT WRITER ---
+            try {
+                humanOps.insertTrial({
+                    attempt_id: lastAttemptId || "UNKNOWN",
+                    member_number: currentMember,
+                    movement_variant: movement,
+                    attempt_number: attempt,
+                    duration_ms: elapsedTime,
+                    peak_vibration: currentMaxVib.current,
+                    recorded_at: Date.now()
+                });
+            } catch (error) {
+                console.error("Local SQLite database biomechanical logging error:", error);
+            }
         }
     };
 
@@ -251,7 +269,8 @@ export default function HumanActivityScreen() {
                     pathname: '/activity_finish',
                     params: {
                         activityId: ACTIVITY_ID,
-                        activityTitle: "Human Performance Lab"
+                        activityTitle: "Human Performance Lab",
+                        attemptId: lastAttemptId || "UNKNOWN" // Passed along to allow direct chart lookup down the pipeline
                     }
                 });
             }, 1200);

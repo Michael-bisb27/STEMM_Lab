@@ -42,6 +42,9 @@ import {
 } from 'firebase/firestore';
 import { db_cloud } from '../services/firebase_config';
 
+// --- LOCAL DATABASE IMPORT ---
+import { parachuteOps } from '../database/db'; // Added to handle high-velocity local logging
+
 // --- THEME IMPORTS ---
 import { themes } from '../theme/theme';
 import { useTheme } from '../theme/theme_context';
@@ -223,6 +226,20 @@ export default function ParachuteActivityScreen() {
         LayoutAnimation.configureNext(LayoutAnimation.Presets.spring);
         setSessionState('impact_captured');
         showToast("Impact Landing Recorded!");
+
+        // --- INJECT LOCAL SQLITE STORAGE UPDATE ---
+        try {
+            parachuteOps.insertTrial({
+                attempt_id: lastAttemptId || "UNKNOWN",
+                action_phase: actionPhase,
+                trial_number: trial,
+                air_time: airtimeCalculatedMs / 1000,
+                peak_g_force: maxGForce,
+                recorded_at: Date.now()
+            });
+        } catch (error) {
+            console.error("Local caching fallback exception:", error);
+        }
     };
 
     // --- 4. DATA LOG ARCHITECTURE MATRIX REDIRECT ---
@@ -239,7 +256,8 @@ export default function ParachuteActivityScreen() {
                         pathname: '/activity_finish',
                         params: {
                             activityId: ACTIVITY_ID,
-                            activityTitle: "Parachute Drop Challenge"
+                            activityTitle: "Parachute Drop Challenge",
+                            attemptId: lastAttemptId || "UNKNOWN" // Passed along to pinpoint specific SQLite local queries
                         }
                     });
                 }, 1000);
@@ -262,7 +280,8 @@ export default function ParachuteActivityScreen() {
                     pathname: '/activity_finish',
                     params: {
                         activityId: ACTIVITY_ID,
-                        activityTitle: "Parachute Drop Challenge"
+                        activityTitle: "Parachute Drop Challenge",
+                        attemptId: lastAttemptId || "UNKNOWN" // Passed along to pinpoint specific SQLite local queries
                     }
                 });
             }, 1000);

@@ -42,6 +42,9 @@ import {
 } from 'firebase/firestore';
 import { db_cloud } from '../services/firebase_config';
 
+// --- LOCAL DATABASE UTILITIES IMPORT ---
+import { breathingOps } from '../database/db'; // Added to track raw biomechanical telemetry inputs locally
+
 // --- THEME IMPORTS ---
 import { themes } from '../theme/theme';
 import { useTheme } from '../theme/theme_context';
@@ -249,6 +252,20 @@ export default function BreathingActivityScreen() {
             const finalRPM = currentPeaks * (60 / RECORDING_DURATION);
             setCalculatedRPM(finalRPM);
 
+            // --- INJECT LOCAL SQLITE TELEMETRY RECORDER WRITER ---
+            try {
+                breathingOps.insertTrial({
+                    attempt_id: lastAttemptId || "UNKNOWN",
+                    member_number: currentMember,
+                    phase_number: phase,
+                    expansions_detected: currentPeaks,
+                    calculated_rpm: finalRPM,
+                    recorded_at: Date.now()
+                });
+            } catch (error) {
+                console.error("Local database respiratory wave entry failure:", error);
+            }
+
             if (finalRPM > 65 || finalRPM < 4) {
                 setAlertModal({
                     visible: true,
@@ -286,7 +303,8 @@ export default function BreathingActivityScreen() {
                     pathname: '/activity_finish',
                     params: {
                         activityId: ACTIVITY_ID,
-                        activityTitle: "Breathing Pace Trainer"
+                        activityTitle: "Breathing Pace Trainer",
+                        attemptId: lastAttemptId || "UNKNOWN" // Appended to support localized chart fetches
                     }
                 });
             }, 1000);
@@ -361,7 +379,7 @@ export default function BreathingActivityScreen() {
                         <Text style={styles.modalMessage}>{alertModal.message}</Text>
                         
                         <TouchableOpacity 
-                            style={[styles.modalButton, { backgroundColor: alertModal.type === 'error' ? "#FF5252" : "#000" }]}
+                            style={[styles.modalButton, { backgroundColor: alertModal.type === 'error' ? "#FF5252" : "#00" }]}
                             onPress={() => setAlertModal({ ...alertModal, visible: false })}
                         >
                             <Text style={styles.modalButtonText}>Acknowledge</Text>

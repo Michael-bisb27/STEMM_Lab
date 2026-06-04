@@ -43,6 +43,9 @@ import {
 } from 'firebase/firestore';
 import { db_cloud } from '../services/firebase_config';
 
+// --- LOCAL DATABASE UTILITIES IMPORT ---
+import { fanOps } from '../database/db'; // Added to route time-series parameters to device structures
+
 // --- THEME IMPORTS ---
 import { themes } from '../theme/theme';
 import { useTheme } from '../theme/theme_context';
@@ -229,6 +232,22 @@ export default function FanActivityScreen() {
         } else {
             setExperimentState('recorded');
             showToast("Run Captured! Log your deflection angles.");
+
+            // --- INJECT LOCAL SQLITE STANDARD TRIAL WRITER ---
+            try {
+                fanOps.insertTrial({
+                    attempt_id: lastAttemptId || "UNKNOWN",
+                    member_number: currentMember,
+                    target_material: targetMaterial,
+                    distance_gap: currentDistance,
+                    fan_design: fanDesign,
+                    fanning_duration: fanningTime,
+                    is_challenge_entry: 0,
+                    recorded_at: Date.now()
+                });
+            } catch (error) {
+                console.error("Local database trial caching exception:", error);
+            }
         }
     };
 
@@ -241,6 +260,28 @@ export default function FanActivityScreen() {
     const saveAndExit = async (bonusAccepted: boolean) => {
         if (isFinishing) return;
         setIsFinishing(true);
+
+        // --- INJECT LOCAL SQLITE OPTIONAL CHALLENGE DATA DATA LOG ---
+        if (bonusAccepted) {
+            try {
+                fanOps.insertTrial({
+                    attempt_id: lastAttemptId || "UNKNOWN",
+                    member_number: currentMember,
+                    target_material: targetMaterial,
+                    distance_gap: currentDistance,
+                    fan_design: fanDesign,
+                    fanning_duration: fanningTime,
+                    is_challenge_entry: 1,
+                    selected_material_spec: selectedMaterial,
+                    stiffness_k: stiffnessK,
+                    observed_angle: parseFloat(observedAngleStr) || 0,
+                    calculated_force: parseFloat(calculatedForce) || 0,
+                    recorded_at: Date.now()
+                });
+            } catch (error) {
+                console.error("Local database challenge caching exception:", error);
+            }
+        }
 
         try {
             await addDoc(collection(db_cloud, "FC_Scoring_Result"), {
@@ -258,7 +299,11 @@ export default function FanActivityScreen() {
             setTimeout(() => {
                 router.push({
                     pathname: '/activity_finish',
-                    params: { activityId: ACTIVITY_ID, activityTitle: "Hand Fan Challenge" }
+                    params: { 
+                        activityId: ACTIVITY_ID, 
+                        activityTitle: "Hand Fan Challenge",
+                        attemptId: lastAttemptId || "UNKNOWN" // Passed along to pinpoint custom charts on layout finish screen
+                    }
                 });
             }, 1200);
         } catch (error) {
@@ -345,15 +390,15 @@ export default function FanActivityScreen() {
                 <View style={styles.modalOverlay}>
                     <View style={styles.modalBox}>
                         <Ionicons 
-                            name={alertModal.type === 'error' ? "close-circle" : alertModal.type === 'warning' ? "warning" : alertModal.type === 'success' ? "checkmark-circle" : "information-circle"} 
+                            name={alertModal.type === 'error' ? "close-circle" : alertModal.type === 'warning' ? "warning" : "information-circle"} 
                             size={56} 
-                            color={alertModal.type === 'error' ? "#FF5252" : alertModal.type === 'warning' ? "#FFB74D" : alertModal.type === 'success' ? "#00E676" : "#4FC3F7"} 
+                            color={alertModal.type === 'error' ? "#FF5252" : alertModal.type === 'warning' ? "#FFB74D" : "#4FC3F7"} 
                         />
                         <Text style={styles.modalTitle}>{alertModal.title}</Text>
                         <Text style={styles.modalMessage}>{alertModal.message}</Text>
                         
                         <TouchableOpacity 
-                            style={[styles.modalButton, { backgroundColor: alertModal.type === 'error' ? "#FF5252" : "#000" }]}
+                            style={[styles.modalButton, { backgroundColor: alertModal.type === 'error' ? "#FF5252" : "#00" }]}
                             onPress={() => setAlertModal({ ...alertModal, visible: false })}
                         >
                             <Text style={styles.modalButtonText}>Acknowledge</Text>

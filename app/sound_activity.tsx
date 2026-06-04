@@ -38,6 +38,9 @@ import {
 } from 'firebase/firestore';
 import { db_cloud } from '../services/firebase_config';
 
+// --- LOCAL DATABASE UTILITIES IMPORT ---
+import { soundOps } from '../database/db'; // Added to handle high-velocity offline logging
+
 // --- EXPONENT SENSORS IMPORT ---
 import { Accelerometer } from 'expo-sensors';
 
@@ -200,7 +203,8 @@ export default function SoundActivityScreen() {
                     pathname: '/activity_finish',
                     params: {
                         activityId: ACTIVITY_ID,
-                        activityTitle: "Sound Pollution Hunter"
+                        activityTitle: "Sound Pollution Hunter",
+                        attemptId: lastAttemptId || "UNKNOWN" // Passed along to allow direct lookup on our Scientist Dashboard
                     }
                 });
             }, 1200);
@@ -283,6 +287,19 @@ export default function SoundActivityScreen() {
             } else {
                 setGameState('result');
                 showToast("Acoustic wave capturing finalized!");
+
+                // --- INJECT LOCAL SQLITE WRITER ACTION ---
+                try {
+                    soundOps.insertTrial({
+                        attempt_id: lastAttemptId || "UNKNOWN",
+                        member_number: currentMember,
+                        action_phase: currentAction,
+                        peak_db: absolutePeak,
+                        recorded_at: Date.now()
+                    });
+                } catch (error) {
+                    console.error("Local SQLite database write exception:", error);
+                }
             }
         }, 4000);
     };

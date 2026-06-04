@@ -1,11 +1,11 @@
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
-import { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { View } from 'react-native';
 import mobileAds from 'react-native-google-mobile-ads';
 
 // Database & Firebase
-import { setupDatabase } from '../database/db';
+import { initializeDatabase } from '../database/db'; // Updated from setupDatabase
 import '../services/firebase_config';
 
 // Theme Context
@@ -52,7 +52,8 @@ function RootLayoutContent() {
   useEffect(() => {
     async function prepare() {
       try {
-        setupDatabase();
+        // Runs the new expo-sqlite engine setup securely before the splash screen hides
+        initializeDatabase(); 
         console.log('Local SQLite Database: Ready');
         console.log('Firebase Cloud Services: Ready');
       } catch (e) {

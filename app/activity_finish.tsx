@@ -40,6 +40,17 @@ import {
 } from 'firebase/firestore';
 import { db_cloud } from '../services/firebase_config';
 
+// --- LOCAL SQLITE UTILITIES DAO IMPORTS ---
+import {
+    breathingOps,
+    earthquakeOps,
+    fanOps,
+    humanOps,
+    parachuteOps,
+    reactionOps,
+    soundOps
+} from '../database/db';
+
 // --- THEME IMPORTS ---
 import { themes } from '../theme/theme';
 import { useTheme } from '../theme/theme_context';
@@ -82,9 +93,10 @@ export default function ActivityFinishScreen() {
     const currentTheme = isDarkMode ? themes.dark : themes.light;
 
     // --- EXTRACT DYNAMIC SEARCH ROUTE PARAMS ---
-    const { activityId, activityTitle } = useLocalSearchParams<{ 
+    const { activityId, activityTitle, attemptId: routeAttemptId } = useLocalSearchParams<{ 
         activityId: string; 
-        activityTitle: string; 
+        activityTitle: string;
+        attemptId?: string;
     }>();
 
     // --- STATES ---
@@ -94,6 +106,9 @@ export default function ActivityFinishScreen() {
     const [imageUris, setImageUris] = useState<string[]>([]); 
     const [reflectionText, setReflectionText] = useState('');
     const [activityDiscussion, setActivityDiscussion] = useState('');
+
+    // --- SCIENTIST DASHBOARD METRICS STATE MATRIX ---
+    const [cachedData, setCachedData] = useState<any[]>([]);
 
     // --- 1. DYNAMIC SESSION RETRIEVAL WITH DEFENSIVE GUARD ---
     useEffect(() => {
@@ -116,34 +131,40 @@ export default function ActivityFinishScreen() {
                     setActivityDiscussion(activitySnap.data().activityDiscussion || 'No discussion prompt provided for this module.');
                 }
 
-                const auth = getAuth();
-                const user = auth.currentUser;
+                let activeSessionId = routeAttemptId || null;
 
-                if (user) {
-                    const studentSnap = await getDoc(doc(db_cloud, "MS_Student", user.uid));
-                    
-                    if (studentSnap.exists()) {
-                        const teamId = studentSnap.data().teamID;
+                if (!activeSessionId) {
+                    const auth = getAuth();
+                    const user = auth.currentUser;
 
-                        if (teamId) {
-                            const q = query(
-                                collection(db_cloud, "FC_Attempt"),
-                                where("TeamID", "==", teamId),
-                                where("ActivityID", "==", activityId),
-                                orderBy("attemptAt", "desc"),
-                                limit(1)
-                            );
-
-                            const querySnapshot = await getDocs(q);
-                            if (!querySnapshot.empty) {
-                                setAttemptId(querySnapshot.docs[0].id);
-                                console.log(`Targeting current Session ID for ${activityTitle || 'Challenge'}:`, querySnapshot.docs[0].id);
-                            } else {
-                                console.warn("No tracking active attempt document found in Firestore database for this team.");
+                    if (user) {
+                        const studentSnap = await getDoc(doc(db_cloud, "MS_Student", user.uid));
+                        if (studentSnap.exists()) {
+                            const teamId = studentSnap.data().teamID;
+                            if (teamId) {
+                                const q = query(
+                                    collection(db_cloud, "FC_Attempt"),
+                                    where("TeamID", "==", teamId),
+                                    where("ActivityID", "==", activityId),
+                                    orderBy("attemptAt", "desc"),
+                                    limit(1)
+                                );
+                                const querySnapshot = await getDocs(q);
+                                if (!querySnapshot.empty) {
+                                    activeSessionId = querySnapshot.docs[0].id;
+                                }
                             }
                         }
                     }
                 }
+
+                if (activeSessionId) {
+                    setAttemptId(activeSessionId);
+                    loadLocalTelemetryMetrics(activeSessionId);
+                } else {
+                    console.warn("No tracking active attempt document found for this session.");
+                }
+
             } catch (error) {
                 console.error("Error fetching live session variables:", error);
             } finally {
@@ -152,7 +173,33 @@ export default function ActivityFinishScreen() {
         };
 
         fetchCurrentSessionAttempt();
-    }, [activityId]);
+    }, [activityId, routeAttemptId]);
+
+    // --- INTERMEDIATE OFFLINE CACHE DATA ROUTER ---
+    const loadLocalTelemetryMetrics = (targetId: string) => {
+        try {
+            let data: any[] = [];
+            if (activityId === "Qvn4OR5l7pf9pCXB2pkq" || activityTitle?.includes("Parachute")) {
+                data = parachuteOps.getTrialsByAttempt(targetId);
+            } else if (activityId === "0clUTH6JFi8V2uuexn9k" || activityTitle?.includes("Sound")) {
+                data = soundOps.getTrialsByAttempt(targetId);
+            } else if (activityId === "9IWijzqyiclKNayBpFZ1" || activityTitle?.includes("Fan")) {
+                data = fanOps.getTrialsByAttempt(targetId);
+            } else if (activityId === "9QUEyTVnLCsuXBgWcCQs" || activityTitle?.includes("Earthquake")) {
+                data = earthquakeOps.getTrialsByAttempt(targetId);
+            } else if (activityId === "KXCsIyy3aDNUJWtcmbgy" || activityTitle?.includes("Human")) {
+                data = humanOps.getTrialsByAttempt(targetId);
+            } else if (activityId === "SD3h6F4QSqYpwFZiTI1Z" || activityTitle?.includes("Reaction")) {
+                data = reactionOps.getTrialsByAttempt(targetId);
+            } else if (activityId === "U2gkCfB3uS6Z8jjmo3Kp" || activityTitle?.includes("Breathing")) {
+                data = breathingOps.getTrialsByAttempt(targetId);
+            }
+            setCachedData(data);
+            console.log(`Successfully mapped ${data.length} telemetry data units from local disk vectors.`);
+        } catch (e) {
+            console.error("Failed to map tracking metrics array parameters:", e);
+        }
+    };
 
     // --- MULTI-IMAGE PICKER HANDLER ---
     const handlePickImages = async () => {
@@ -285,6 +332,193 @@ export default function ActivityFinishScreen() {
         }
     };
 
+    // --- DYNAMIC DASHBOARD COMPONENT MATRIX GENERATOR ---
+    const renderScientistDashboard = () => {
+        if (!cachedData || cachedData.length === 0) {
+            return (
+                <View style={styles.dashboardPlaceholder}>
+                    <Ionicons name="stats-chart-outline" size={18} color="#777" />
+                    <Text style={styles.placeholderText}>Waiting for local laboratory data logs...</Text>
+                </View>
+            );
+        }
+
+        const isParachute = activityId === "Qvn4OR5l7pf9pCXB2pkq" || activityTitle?.includes("Parachute");
+        const isSound = activityId === "0clUTH6JFi8V2uuexn9k" || activityTitle?.includes("Sound");
+        const isFan = activityId === "9IWijzqyiclKNayBpFZ1" || activityTitle?.includes("Fan");
+        const isEarthquake = activityId === "9QUEyTVnLCsuXBgWcCQs" || activityTitle?.includes("Earthquake");
+        const isHuman = activityId === "KXCsIyy3aDNUJWtcmbgy" || activityTitle?.includes("Human");
+        const isReaction = activityId === "SD3h6F4QSqYpwFZiTI1Z" || activityTitle?.includes("Reaction");
+        const isBreathing = activityId === "U2gkCfB3uS6Z8jjmo3Kp" || activityTitle?.includes("Breathing");
+
+        return (
+            <View style={styles.dashboardCard}>
+                <View style={styles.dashboardHeader}>
+                    <Ionicons name="analytics-sharp" size={16} color="#00E5FF" />
+                    <Text style={styles.dashboardTitle}>SCIENTIST'S ANALYTICS WORKSPACE</Text>
+                </View>
+
+                {/* ACTIVITY 1 SUMMARY CARD */}
+                {isParachute && (
+                    <View style={styles.tableBlock}>
+                        <View style={[styles.tableRow, styles.thBg]}>
+                            <Text style={[styles.tdText, styles.thFont, { flex: 1.5 }]}>Phase Condition</Text>
+                            <Text style={[styles.tdText, styles.thFont]}>Avg Airtime</Text>
+                            <Text style={[styles.tdText, styles.thFont]}>Peak G-Impact</Text>
+                        </View>
+                        {[1, 2, 3].map(p => {
+                            const runs = cachedData.filter(r => r.action_phase === p);
+                            const avgAir = runs.length ? runs.reduce((s, r) => s + r.air_time, 0) / runs.length : 0;
+                            const maxG = runs.length ? Math.max(...runs.map(r => r.peak_g_force)) : 0;
+                            const labels = ["1: No Canopy Baseline", "2: 4-Corner Matrix", "3: Custom Engineered"];
+                            return (
+                                <View key={p} style={styles.tableRow}>
+                                    <Text style={[styles.tdText, styles.boldTd, { flex: 1.5 }]}>{labels[p-1]}</Text>
+                                    <Text style={styles.tdText}>{avgAir.toFixed(2)}s</Text>
+                                    <Text style={[styles.tdText, maxG > 15 ? styles.redAlert : styles.greenText]}>{maxG.toFixed(1)}g</Text>
+                                </View>
+                            );
+                        })}
+                    </View>
+                )}
+
+                {/* ACTIVITY 2 SUMMARY CARD */}
+                {isSound && (
+                    <View style={styles.tableBlock}>
+                        <View style={[styles.tableRow, styles.thBg]}>
+                            <Text style={[styles.tdText, styles.thFont]}>Investigator</Text>
+                            <Text style={[styles.tdText, styles.thFont, { flex: 1.5 }]}>Acoustic Context</Text>
+                            <Text style={[styles.tdText, styles.thFont]}>Peak Vol</Text>
+                        </View>
+                        {cachedData.map((row, idx) => (
+                            <View key={idx} style={styles.tableRow}>
+                                <Text style={[styles.tdText, styles.boldTd]}>Student {row.member_number}</Text>
+                                <Text style={[styles.tdText, { flex: 1.5, textAlign: 'left', paddingLeft: 10 }]}>
+                                    {row.action_phase === 1 ? "Object Dropping STUDY" : row.action_phase === 2 ? "Vocal Levels CHECK" : "Floor Stamping IMPACT"}
+                                </Text>
+                                <Text style={[styles.tdText, row.peak_db > 85 ? styles.redAlert : styles.blueText]}>{row.peak_db.toFixed(0)} dB</Text>
+                            </View>
+                        ))}
+                    </View>
+                )}
+
+                {/* ACTIVITY 3 SUMMARY CARD */}
+                {isFan && (
+                    <View style={styles.tableBlock}>
+                        <View style={[styles.tableRow, styles.thBg]}>
+                            <Text style={[styles.tdText, styles.thFont]}>Material Context</Text>
+                            <Text style={[styles.tdText, styles.thFont]}>Spacing</Text>
+                            <Text style={[styles.tdText, styles.thFont]}>Blade Config</Text>
+                            <Text style={[styles.tdText, styles.thFont]}>Sustain</Text>
+                        </View>
+                        {cachedData.filter(r => r.is_challenge_entry === 0).slice(-3).map((row, idx) => (
+                            <View key={idx} style={styles.tableRow}>
+                                <Text style={[styles.tdText, styles.boldTd]}>{row.target_material}</Text>
+                                <Text style={styles.tdText}>{row.distance_gap}</Text>
+                                <Text style={styles.tdText}>Design {row.fan_design}</Text>
+                                <Text style={styles.tdText}>{row.fanning_duration}s</Text>
+                            </View>
+                        ))}
+                        {cachedData.some(r => r.is_challenge_entry === 1) && (
+                            <View style={styles.bonusPanel}>
+                                <Text style={styles.bonusBadgeTitle}>✦ COEFFICIENT STIFFNESS BONUS SUBMISSION</Text>
+                                {cachedData.filter(r => r.is_challenge_entry === 1).map((r, i) => (
+                                    <Text key={i} style={styles.bonusDataParagraph}>
+                                        Rigid Material: <Text style={styles.whiteB}>{r.selected_material_spec}</Text> (k: {r.stiffness_k} N/rad) | Displacement: <Text style={styles.whiteB}>{r.observed_angle}°</Text> | Output Force: <Text style={styles.cyanB}>{r.calculated_force?.toFixed(4)} N</Text>
+                                    </Text>
+                                ))}
+                            </View>
+                        )}
+                    </View>
+                )}
+
+                {/* ACTIVITY 4 SUMMARY CARD */}
+                {isEarthquake && (
+                    <View style={styles.tableBlock}>
+                        <View style={[styles.tableRow, styles.thBg]}>
+                            <Text style={[styles.tdText, styles.thFont]}>Investigator</Text>
+                            <Text style={[styles.tdText, styles.thFont, { flex: 1.2 }]}>Framework Layout</Text>
+                            <Text style={[styles.tdText, styles.thFont]}>Max Shift</Text>
+                            <Text style={[styles.tdText, styles.thFont]}>Deflection</Text>
+                        </View>
+                        {cachedData.slice(-4).map((row, idx) => (
+                            <View key={idx} style={styles.tableRow}>
+                                <Text style={[styles.tdText, styles.boldTd]}>Student {row.member_number}</Text>
+                                <Text style={[styles.tdText, { flex: 1.2, textAlign: 'left', paddingLeft: 8 }]}>Design {row.design_number}</Text>
+                                <Text style={styles.tdText}>±{row.peak_displacement}cm</Text>
+                                <Text style={[styles.tdText, row.angular_deflection > 15 ? styles.orangeText : styles.greenText]}>{row.angular_deflection}°</Text>
+                            </View>
+                        ))}
+                    </View>
+                )}
+
+                {/* ACTIVITY 5 SUMMARY CARD */}
+                {isHuman && (
+                    <View style={styles.tableBlock}>
+                        <View style={[styles.tableRow, styles.thBg]}>
+                            <Text style={[styles.tdText, styles.thFont]}>Student</Text>
+                            <Text style={[styles.tdText, styles.thFont]}>Stretch Variant</Text>
+                            <Text style={[styles.tdText, styles.thFont]}>Hold Duration</Text>
+                            <Text style={[styles.tdText, styles.thFont]}>Stabilization</Text>
+                        </View>
+                        {cachedData.slice(-3).map((row, idx) => (
+                            <View key={idx} style={styles.tableRow}>
+                                <Text style={[styles.tdText, styles.boldTd]}>Role {row.member_number}</Text>
+                                <Text style={styles.tdText}>Layout {row.movement_variant}</Text>
+                                <Text style={styles.tdText}>{(row.duration_ms / 1000).toFixed(1)}s</Text>
+                                <Text style={styles.tdText}>{row.peak_vibration.toFixed(2)} G</Text>
+                            </View>
+                        ))}
+                    </View>
+                )}
+
+                {/* ACTIVITY 6 SUMMARY CARD */}
+                {isReaction && (
+                    <View style={styles.tableBlock}>
+                        <View style={[styles.tableRow, styles.thBg]}>
+                            <Text style={[styles.tdText, styles.thFont]}>Investigator</Text>
+                            <Text style={[styles.tdText, styles.thFont, { flex: 1.5 }]}>Neuromuscular Track</Text>
+                            <Text style={[styles.tdText, styles.thFont]}>Latency</Text>
+                        </View>
+                        {[1, 2, 3].map(p => {
+                            const items = cachedData.filter(r => r.phase_number === p);
+                            const avgTime = items.length ? items.reduce((s, r) => s + r.recorded_time, 0) / items.length : 0;
+                            const label = p === 1 ? "Dominant Hand Reflex" : p === 2 ? "Non-Dominant Reflex" : "Target Coordinate Trace";
+                            return (
+                                <View key={p} style={styles.tableRow}>
+                                    <Text style={[styles.tdText, styles.boldTd, { flex: 1.5, textAlign: 'left', paddingLeft: 12 }]}>{label}</Text>
+                                    <Text style={[styles.tdText, styles.cyanText, { fontFamily: 'BalsamiqSans_700Bold' }]}>{avgTime ? `${avgTime.toFixed(3)}s` : '--'}</Text>
+                                </View>
+                            );
+                        })}
+                    </View>
+                )}
+
+                {/* ACTIVITY 7 SUMMARY CARD */}
+                {isBreathing && (
+                    <View style={styles.tableBlock}>
+                        <View style={[styles.tableRow, styles.thBg]}>
+                            <Text style={[styles.tdText, styles.thFont]}>Investigator</Text>
+                            <Text style={[styles.tdText, styles.thFont, { flex: 1.3 }]}>Biometric Context</Text>
+                            <Text style={[styles.tdText, styles.thFont]}>Calculated Rate</Text>
+                        </View>
+                        {cachedData.map((row, idx) => (
+                            <View key={idx} style={styles.tableRow}>
+                                <Text style={[styles.tdText, styles.boldTd]}>Student {row.member_number}</Text>
+                                <Text style={[styles.tdText, { flex: 1.3, textAlign: 'left', paddingLeft: 12 }]}>
+                                    {row.phase_number === 1 ? "At Rest Baseline" : row.phase_number === 2 ? "Post-Jogging Stress" : "Post-Star Jumps Peak"}
+                                </Text>
+                                <Text style={[styles.tdText, styles.greenText, { fontFamily: 'BalsamiqSans_700Bold' }]}>{row.calculated_rpm.toFixed(0)} RPM</Text>
+                            </View>
+                        ))}
+                    </View>
+                )}
+
+                <Text style={styles.dbHintText}>* Data parameters isolated successfully inside high-speed local device storage models.</Text>
+            </View>
+        );
+    };
+
     if (!fontsLoaded || loading) {
         return (
             <View style={[styles.loader, { backgroundColor: isDarkMode ? '#141414' : '#F3F0E9' }]}>
@@ -344,6 +578,9 @@ export default function ActivityFinishScreen() {
                                 </ScrollView>
                             </View>
                         ) : null}
+
+                        {/* --- SCIENTIST LOCAL TELEMETRY DASHBOARD PANEL CONTAINER --- */}
+                        {renderScientistDashboard()}
 
                         {/* --- GALLERY BOX --- */}
                         <View style={styles.galleryContainer}>
@@ -447,6 +684,31 @@ const styles = StyleSheet.create({
     discussionTitle: { fontFamily: 'BalsamiqSans_700Bold', fontSize: 13, color: '#000', marginBottom: 4 },
     discussionScroll: { flex: 1 },
     discussionText: { fontFamily: 'BalsamiqSans_400Regular', fontSize: 13, color: '#333', lineHeight: 17 },
+
+    // --- SCIENTIST LOCAL TELEMETRY DASHBOARD STYLE ARCHITECTURE ---
+    dashboardCard: { width: '100%', backgroundColor: '#000000', borderRadius: 14, padding: 12, marginVertical: 6, borderWidth: 1.5, borderColor: '#333', elevation: 4, zIndex: 5 },
+    dashboardHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
+    dashboardTitle: { fontFamily: 'BalsamiqSans_700Bold', fontSize: 11, color: '#00E5FF', marginLeft: 6, letterSpacing: 0.5 },
+    tableBlock: { width: '100%', backgroundColor: '#111', borderRadius: 8, overflow: 'hidden', borderWidth: 1, borderColor: '#222' },
+    tableRow: { flexDirection: 'row', paddingVertical: 8, paddingHorizontal: 10, borderBottomWidth: 1, borderBottomColor: '#222', alignItems: 'center' },
+    thBg: { backgroundColor: '#1A1A1A' },
+    tdText: { flex: 1, fontFamily: 'BalsamiqSans_400Regular', fontSize: 12, color: '#EEE', textAlign: 'center' },
+    thFont: { fontFamily: 'BalsamiqSans_700Bold', color: '#888', fontSize: 11 },
+    boldTd: { textAlign: 'left', fontFamily: 'BalsamiqSans_700Bold', color: '#FFF' },
+    redAlert: { color: '#FF5252', fontFamily: 'BalsamiqSans_700Bold' },
+    greenText: { color: '#00E676' },
+    blueText: { color: '#29B6F6' },
+    orangeText: { color: '#FFA726' },
+    cyanText: { color: '#00E5FF' },
+    dbHintText: { fontFamily: 'BalsamiqSans_400Regular', fontSize: 9, fontStyle: 'italic', color: '#666', textAlign: 'center', marginTop: 6 },
+    dashboardPlaceholder: { width: '100%', height: 45, borderStyle: 'dashed', borderWidth: 1.5, borderColor: '#777', borderRadius: 10, justifyContent: 'center', alignItems: 'center', flexDirection: 'row', marginVertical: 6, opacity: 0.6 },
+    placeholderText: { fontFamily: 'BalsamiqSans_400Regular', fontSize: 12, color: '#555', marginLeft: 6 },
+    
+    bonusPanel: { backgroundColor: '#141E24', padding: 10, borderTopWidth: 1, borderColor: '#22323D' },
+    bonusBadgeTitle: { fontFamily: 'BalsamiqSans_700Bold', fontSize: 10, color: '#FFD700', marginBottom: 4 },
+    bonusDataParagraph: { fontFamily: 'BalsamiqSans_400Regular', fontSize: 11, color: '#B0BEC5', lineHeight: 14 },
+    whiteB: { color: '#FFF', fontFamily: 'BalsamiqSans_700Bold' },
+    cyanB: { color: '#00E5FF', fontFamily: 'BalsamiqSans_700Bold' },
 
     galleryContainer: { width: '100%', height: 135, marginVertical: 5, zIndex: 5 },
     galleryScroll: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 5, flexGrow: 1 },
