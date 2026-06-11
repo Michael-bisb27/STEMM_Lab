@@ -5,6 +5,7 @@ import {
 } from '@expo-google-fonts/balsamiq-sans';
 import { Ionicons } from '@expo/vector-icons';
 import { Stack, useRouter } from 'expo-router';
+import { doc, getDoc } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
 import {
     ActivityIndicator,
@@ -21,26 +22,22 @@ import {
     View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-
-// --- FIREBASE IMPORTS ---
-import { doc, getDoc } from 'firebase/firestore';
 import { db_cloud } from '../services/firebase_config';
-
-// --- THEME IMPORTS ---
 import { themes } from '../theme/theme';
 import { useTheme } from '../theme/theme_context';
 
 const { width } = Dimensions.get('window');
 
+// allow layout animations on android
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
     UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
+// ─── Per-screen content ───────────────────────────────────────────────────────
 export default function SoundPollutionHunterScreen() {
     const router = useRouter();
     const [fontsLoaded] = useFonts({ BalsamiqSans_400Regular, BalsamiqSans_700Bold });
 
-    // --- CONSUME GLOBAL THEME CONTEXT ---
     const { isDarkMode } = useTheme();
     const currentTheme = isDarkMode ? themes.dark : themes.light;
 
@@ -51,6 +48,7 @@ export default function SoundPollutionHunterScreen() {
     useEffect(() => {
         const fetchActivity = async () => {
             try {
+                // hardcoded doc id for sound pollution activity
                 const actRef = doc(db_cloud, "MS_Activity", "0clUTH6JFi8V2uuexn9k");
                 const actSnap = await getDoc(actRef);
                 if (actSnap.exists()) setActivity(actSnap.data());
@@ -64,12 +62,13 @@ export default function SoundPollutionHunterScreen() {
     }, []);
 
     const toggleCurriculum = () => {
+        // animate height layout updates smoothly
         LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
         setShowCurriculum(!showCurriculum);
     };
 
     if (!fontsLoaded || loading) {
-        /* Adaptive background loader container base configuration mapping to prevent flashing */
+        // fallback loader to avoid white screen flash
         return (
             <View style={[styles.loader, { backgroundColor: isDarkMode ? '#141414' : '#F3F0E9' }]}>
                 <ActivityIndicator size="large" color="#00E5FF" />
@@ -78,11 +77,9 @@ export default function SoundPollutionHunterScreen() {
     }
 
     return (
-        /* Dynamic Theme Background Image Swap */
         <ImageBackground source={currentTheme.backgroundImage} style={styles.background}>
             <Stack.Screen options={{ headerShown: false }} />
             
-            {/* --- TOP BAR --- */}
             <View style={styles.headerWrapper}>
                 <SafeAreaView edges={['top']}>
                     <View style={styles.topBar}>
@@ -99,7 +96,6 @@ export default function SoundPollutionHunterScreen() {
             <SafeAreaView style={styles.safeArea} edges={['left', 'right', 'bottom']}>
                 <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.mainScroll}>
                     
-                    {/* Title section elements tracking (Dynamic typography text styles applied) */}
                     <View style={styles.titleSection}>
                         <Text style={[styles.labelItalic, { color: currentTheme.textColor }]}>Activity:</Text>
                         <Text style={[styles.activityName, { color: currentTheme.textColor }]}>{activity?.activityName || "Sound Pollution Hunter"}</Text>
@@ -119,7 +115,6 @@ export default function SoundPollutionHunterScreen() {
                         )}
                     </TouchableOpacity>
 
-                    {/* Dynamic text color applied */}
                     <Text style={[styles.sectionHeadingUnderlined, { color: currentTheme.textColor }]}>Activity Requirements</Text>
 
                     <View style={styles.overviewBox}>
@@ -132,7 +127,6 @@ export default function SoundPollutionHunterScreen() {
                         </View>
                     </View>
 
-                    {/* --- WRITE-UP GUIDE SECTION --- */}
                     <View style={styles.notebookContainer}>
                         <View style={styles.notebookHeader}>
                             <Text style={styles.notebookTitle}>Write-up (on paper):</Text>
@@ -148,7 +142,6 @@ export default function SoundPollutionHunterScreen() {
                             </Text>
                         </View>
 
-                        {/* RECREATED DATA TABLE VISUALIZATION */}
                         <View style={styles.tableWrapper}>
                             <View style={styles.tableRow}>
                                 <View style={[styles.tableCell, styles.headerCell, { flex: 1.2 }]} />
@@ -201,7 +194,6 @@ export default function SoundPollutionHunterScreen() {
 
                 </ScrollView>
 
-                {/* BOTTOM TAB NAVIGATION */}
                 <View style={styles.bottomTabs}>
                     <TouchableOpacity style={styles.tabItem} onPress={() => router.push('/home')}>
                         <Image source={require('../assets/images/Home.png')} style={styles.tabIcon} />
@@ -221,6 +213,7 @@ export default function SoundPollutionHunterScreen() {
     );
 }
 
+// ─── Styles ───────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
     background: { flex: 1 },
     safeArea: { flex: 1 },

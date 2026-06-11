@@ -5,6 +5,20 @@ import {
 } from '@expo-google-fonts/balsamiq-sans';
 import { Ionicons } from '@expo/vector-icons';
 import { Stack, useRouter } from 'expo-router';
+import { Accelerometer } from 'expo-sensors';
+import { getAuth } from 'firebase/auth';
+import {
+    addDoc,
+    collection,
+    doc,
+    getDoc,
+    getDocs,
+    limit,
+    orderBy,
+    query,
+    Timestamp,
+    where
+} from 'firebase/firestore';
 import React, { useEffect, useRef, useState } from 'react';
 import {
     ActivityIndicator,
@@ -21,30 +35,8 @@ import {
     View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-
-// --- EXPONENT SENSORS IMPORT ---
-import { Accelerometer } from 'expo-sensors';
-
-// --- FIREBASE IMPORTS ---
-import { getAuth } from 'firebase/auth';
-import {
-    addDoc,
-    collection,
-    doc,
-    getDoc,
-    getDocs,
-    limit,
-    orderBy,
-    query,
-    Timestamp,
-    where
-} from 'firebase/firestore';
+import { reactionOps } from '../database/db';
 import { db_cloud } from '../services/firebase_config';
-
-// --- LOCAL DATABASE UTILITIES IMPORT ---
-import { reactionOps } from '../database/db'; // Added to capture reflex parameters inside high-speed device arrays
-
-// --- THEME IMPORTS ---
 import { themes } from '../theme/theme';
 import { useTheme } from '../theme/theme_context';
 
@@ -56,15 +48,14 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
     UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
+// ─── Per-screen content ───────────────────────────────────────────────────────
 export default function ReactionActivityScreen() {
     const router = useRouter();
     const [fontsLoaded] = useFonts({ BalsamiqSans_400Regular, BalsamiqSans_700Bold });
 
-    // --- CONSUME GLOBAL THEME CONTEXT ---
     const { isDarkMode } = useTheme();
     const currentTheme = isDarkMode ? themes.dark : themes.light;
 
-    // --- STATES ---
     const [currentMember, setCurrentMember] = useState(1);
     const [totalMembers, setTotalMembers] = useState(0);
     const [teamId, setTeamId] = useState<string | null>(null);
@@ -80,10 +71,8 @@ export default function ReactionActivityScreen() {
     const [isFollowing, setIsFollowing] = useState(false);
     const [traceProgress, setTraceProgress] = useState(0); 
 
-    // Sensor State tracking
     const [isFlat, setIsFlat] = useState(true);
     
-    // UX ANNOUNCEMENT & BADGE TOAST STATES
     const [toastMessage, setToastMessage] = useState<string>('');
     const toastOpacity = useRef(new Animated.Value(0)).current;
     
@@ -100,7 +89,6 @@ export default function ReactionActivityScreen() {
     const tracePos = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
     const subscription = useRef<any>(null);
 
-    // --- IN-APP BADGE TOAST NOTIFICATION OVERLAY ---
     const showToast = (msg: string) => {
         setToastMessage(msg);
         Animated.sequence([
@@ -110,7 +98,6 @@ export default function ReactionActivityScreen() {
         ]).start(() => setToastMessage(''));
     };
 
-    // --- 1. BACKGROUND ENVIRONMENT SENSOR SUBSCRIPTION ---
     useEffect(() => {
         if (gameState === 'result') {
             if (subscription.current) {
@@ -128,6 +115,7 @@ export default function ReactionActivityScreen() {
             
             setIsFlat(flat);
 
+            // clear timers instantly if user tilts board mid-test
             if (!flat) {
                 if (signalTimer.current) {
                     clearTimeout(signalTimer.current);
@@ -142,7 +130,6 @@ export default function ReactionActivityScreen() {
         };
     }, [gameState]);
 
-    // --- 2. FETCH TEAM & ATTEMPT DATA ---
     useEffect(() => {
         const fetchData = async () => {
             try {
@@ -158,6 +145,7 @@ export default function ReactionActivityScreen() {
                         const memberSnap = await getDocs(qMembers);
                         setTotalMembers(memberSnap.size || 1);
 
+                        // pull context from the active loop setup session
                         const qAttempt = query(
                             collection(db_cloud, "FC_Attempt"),
                             where("TeamID", "==", tId),
@@ -180,9 +168,9 @@ export default function ReactionActivityScreen() {
         fetchData();
     }, []);
 
-    // --- 3. TRACING ENGINE ---
     useEffect(() => {
         if (phase === 3 && gameState === 'signal' && isFollowing && isFlat) {
+            // interval loop calculation for accurate trace tracking gaps
             traceInterval.current = setInterval(() => {
                 setTraceProgress(prev => {
                     if (prev >= 100) {
@@ -192,8 +180,8 @@ export default function ReactionActivityScreen() {
                         setGameState('result');
                         showToast("Tracing complete!");
 
-                        // --- INJECT LOCAL SQLITE WRITER HOOK FOR PHASE 3 ---
                         try {
+                            // backup phase metrics straight to local sqlite fallback
                             reactionOps.insertTrial({
                                 attempt_id: lastAttemptId || "UNKNOWN",
                                 member_number: currentMember,
@@ -236,7 +224,6 @@ export default function ReactionActivityScreen() {
         }
     }, [traceProgress]);
 
-    // --- 4. FINISH HANDLER ---
     const handleFinishChallenge = async () => {
         if (isFinishing) return;
         setIsFinishing(true);
@@ -259,7 +246,7 @@ export default function ReactionActivityScreen() {
                     params: {
                         activityId: ACTIVITY_ID,
                         activityTitle: "Reaction Board Challenge",
-                        attemptId: lastAttemptId || "UNKNOWN" // Appended to parse cached files into comparison dashboards
+                        attemptId: lastAttemptId || "UNKNOWN" 
                     }
                 });
             }, 1200);
@@ -298,13 +285,13 @@ export default function ReactionActivityScreen() {
         }
     };
 
-    // --- 5. INPUT ACTIONS WITH ANTI-CHEAT SAFETY ENFORCEMENT ---
     const startAction = () => {
         if (!isFlat) return; 
         setGameState('waiting');
         setReactionTime(0);
         setTraceProgress(0);
         if (phase < 3) {
+            // randomize visual queue delays to block predictability
             const delay = Math.floor(Math.random() * 2000) + 1500;
             signalTimer.current = setTimeout(() => {
                 setGameState('signal');
@@ -321,6 +308,7 @@ export default function ReactionActivityScreen() {
         if (gameState === 'signal' && phase < 3) {
             const computedTime = (Date.now() - startTime.current) / 1000;
             
+            // catch early tap bursts to prevent guessing values
             if (computedTime < 0.10) {
                 if (signalTimer.current) clearTimeout(signalTimer.current);
                 setGameState('idle');
@@ -339,8 +327,8 @@ export default function ReactionActivityScreen() {
             setGameState('result');
             showToast("Reaction Logged!");
 
-            // --- INJECT LOCAL SQLITE WRITER HOOK FOR PHASES 1 & 2 ---
             try {
+                // write raw timestamp metrics packet down into mobile cache systems
                 reactionOps.insertTrial({
                     attempt_id: lastAttemptId || "UNKNOWN",
                     member_number: currentMember,
@@ -361,7 +349,7 @@ export default function ReactionActivityScreen() {
     const totalSteps = 9; 
     const currentStep = ((currentMember - 1) * totalSteps) + ((phase - 1) * 3) + (trial - 1);
     
-    // FIXED: Renamed to stepProgressPercent to fully avoid the global DOM type 'ProgressEvent' collision name bug
+    // avoid global ProgressEvent collisions with custom naming structures
     const stepProgressPercent = (currentStep / (totalMembers * totalSteps)) * 100;
 
     if (!fontsLoaded || loading) {
@@ -373,11 +361,9 @@ export default function ReactionActivityScreen() {
     }
 
     return (
-        /* Dynamic Theme Background Image Swap */
         <ImageBackground source={currentTheme.backgroundImage} style={styles.background}>
             <Stack.Screen options={{ headerShown: false }} />
             
-            {/* --- IN-APP TOAST ACTION CONFIRMATION BADGE --- */}
             {toastMessage ? (
                 <Animated.View style={[styles.toastContainer, { opacity: toastOpacity }]}>
                     <Ionicons name="flash" size={18} color="#00E5FF" />
@@ -385,7 +371,6 @@ export default function ReactionActivityScreen() {
                 </Animated.View>
             ) : null}
 
-            {/* --- CRITICAL POP-UP ANNOUNCEMENT OVERLAY MODAL --- */}
             <Modal transparent visible={alertModal.visible} animationType="fade" onRequestClose={() => setAlertModal({ ...alertModal, visible: false })}>
                 <View style={styles.modalOverlay}>
                     <View style={styles.modalBox}>
@@ -424,7 +409,6 @@ export default function ReactionActivityScreen() {
             <SafeAreaView style={styles.safeArea} edges={['left', 'right']}>
                 <View style={styles.content}>
                     
-                    {/* --- BACKGROUND TILT WARNING OVERLAY --- */}
                     {!isFlat && (
                         <View style={styles.pauseOverlay}>
                             <Ionicons name="phone-portrait-outline" size={64} color="#FF5252" style={styles.alertIcon} />
@@ -432,7 +416,6 @@ export default function ReactionActivityScreen() {
                         </View>
                     )}
 
-                    {/* Loose title parameters wired directly to currentTheme layout color rules */}
                     <View style={styles.titleSection}>
                         <Text style={[styles.recordingTag, { color: currentTheme.textColor }]}>Live Recording</Text>
                         <Text style={[styles.activityName, { color: currentTheme.textColor }]}>Reaction Board Challenge</Text>
@@ -489,7 +472,6 @@ export default function ReactionActivityScreen() {
                         )}
                     </View>
 
-                    {/* Status tracker parameters (Dynamic text styles configured) */}
                     <View style={styles.statusRow}>
                         <View style={styles.redDot} />
                         <Text style={[styles.statusText, { color: currentTheme.textColor }]}>
@@ -531,6 +513,7 @@ export default function ReactionActivityScreen() {
     );
 }
 
+// ─── Styles ───────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
     background: { flex: 1 },
     safeArea: { flex: 1 },

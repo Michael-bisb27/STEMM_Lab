@@ -1,13 +1,5 @@
 import { jest } from '@jest/globals';
 
-// 1. ROUTING PATH: Adjust this based on where your real screen lives
-// If it's inside (student), use: '../(student)/fan_activity'
-// If it's directly in app, use: '../fan_activity'
-
-// ==========================================
-// SYSTEM ENVIRONMENT MOCKS
-// ==========================================
-
 jest.mock('@expo-google-fonts/balsamiq-sans', () => ({
     useFonts: () => [true],
     BalsamiqSans_400Regular: {},
@@ -23,6 +15,7 @@ jest.mock('expo-router', () => ({
     Stack: { Screen: () => null },
 }));
 
+// mock the nested listener cleanup so it doesn't crash
 jest.mock('expo-sensors', () => ({
     Accelerometer: {
         addListener: jest.fn(() => ({ remove: jest.fn() })),
@@ -34,6 +27,7 @@ jest.mock('firebase/auth', () => ({
     getAuth: () => ({ currentUser: { uid: 'test_student_123' } }),
 }));
 
+// mock the nested chain for doc verification/fetching
 jest.mock('firebase/firestore', () => ({
     collection: jest.fn(),
     doc: jest.fn(),
@@ -46,12 +40,11 @@ jest.mock('firebase/firestore', () => ({
     Timestamp: { now: () => 'mock-time' },
 }));
 
-// ADDED AN EXTRA '../' HERE TO GO TO YOUR ROOT SERVICES FOLDER
 jest.mock('../../services/firebase_config', () => ({
     db_cloud: {},
 }));
 
-// ADDED TO MOCK THE DYNAMIC GRAPHICS IN YOUR FAN COMPONENT
+// ─── Styles ───────────────────────────────────────────────────────────────────
 jest.mock('../../theme/theme', () => ({
     themes: {
         light: { backgroundImage: 'mock-light-bg' },
@@ -59,24 +52,14 @@ jest.mock('../../theme/theme', () => ({
     },
 }));
 
-// ADDED AN EXTRA '../' HERE TO GO TO YOUR ROOT THEME FOLDER
 jest.mock('../../theme/theme_context', () => ({
     useTheme: () => ({ isDarkMode: false }),
 }));
 
-// ==========================================
-// ACTUAL TEST CASES
-// ==========================================
-
+// ─── Per-screen content ───────────────────────────────────────────────────────
 describe('Fan Activity Component', () => {
+    // simple baseline check to make sure jest runs
     it('should run the test suite successfully', () => {
-        // This baseline test ensures Jest has something to execute
         expect(true).toBe(true);
     });
-
-    // You can add your actual component rendering tests here later, e.g.:
-    // it('renders correctly', () => {
-    //     const { getByText } = render(<FanActivityScreen />);
-    //     expect(getByText('Hand Fan Challenge Tracker')).toBeTruthy();
-    // });
 });

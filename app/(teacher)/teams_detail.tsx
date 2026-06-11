@@ -17,7 +17,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { collection, doc, onSnapshot, query, updateDoc, where } from 'firebase/firestore';
+import { collection, doc, getDocs, onSnapshot, query, updateDoc, where, writeBatch } from 'firebase/firestore';
 import { db_cloud } from '../../services/firebase_config';
 
 import { themes } from '../../theme/theme';
@@ -47,8 +47,6 @@ const activityNames: Record<string, { short: string; full: string }> = {
     'heal2': { short: 'Reaction Lab', full: 'Reaction Lab' },
     'heal3': { short: 'Breathing Pace', full: 'Breathing Pace' },
 };
-
-// ─── Per-screen content ───────────────────────────────────────────────────────
 
 export default function TeacherTeamDetailScreen() {
     const router = useRouter();
@@ -185,6 +183,60 @@ export default function TeacherTeamDetailScreen() {
         );
     };
 
+    const handleDeleteTeam = () => {
+        Alert.alert(
+            "Delete Team Permanent",
+            `Are you sure you want to completely delete "${team?.teamName || 'this team'}"? This clears all associated attempts and metrics records.`,
+            [
+                { text: "Cancel", style: "cancel" },
+                {
+                    text: "Delete Everything",
+                    style: "destructive",
+                    onPress: async () => {
+                        try {
+                            setLoading(true);
+                            const batch = writeBatch(db_cloud);
+
+                            // 1. Clear team references for all assigned students
+                            students.forEach((student) => {
+                                const studentDocRef = doc(db_cloud, "MS_Student", student.id);
+                                batch.update(studentDocRef, { teamID: "" });
+                            });
+
+                            // 2. Clear related FC_Attempt logs
+                            const attemptsQ = query(collection(db_cloud, "FC_Attempt"), where("TeamID", "==", teamId));
+                            const attemptsSnapshot = await getDocs(attemptsQ);
+                            attemptsSnapshot.forEach((docSnap) => {
+                                batch.delete(docSnap.ref);
+                            });
+
+                            // 3. Clear related FC_Scoring_Result logs
+                            const scoresQ = query(collection(db_cloud, "FC_Scoring_Result"), where("TeamID", "==", teamId));
+                            const scoresSnapshot = await getDocs(scoresQ);
+                            scoresSnapshot.forEach((docSnap) => {
+                                batch.delete(docSnap.ref);
+                            });
+
+                            // 4. Finally, remove the primary team document
+                            const teamDocRef = doc(db_cloud, "MS_Team", teamId as string);
+                            batch.delete(teamDocRef);
+
+                            // Execute all data adjustments atomically
+                            await batch.commit();
+
+                            Alert.alert("Success", "Team and dependency documents dropped successfully.", [
+                                { text: "OK", onPress: () => router.replace('/(teacher)/teams') }
+                            ]);
+                        } catch (error) {
+                            setLoading(false);
+                            Alert.alert("Deletion Error", "Could not safely drop team collection data.");
+                        }
+                    }
+                }
+            ]
+        );
+    };
+
     const getActivityLabel = (id: string) => {
         if (id === "Qvn4OR5l7pf9pCXB2pkq") return activityNames['eng1'].full;
         return activityNames[id]?.full || 'Science Lab Activity';
@@ -260,6 +312,15 @@ export default function TeacherTeamDetailScreen() {
                         >
                             <Ionicons name="people-outline" size={18} color="#000" />
                             <Text style={styles.manageRosterButtonText}>Manage Team Roster ({students.length})</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity 
+                            style={styles.deleteTeamButton} 
+                            activeOpacity={0.8}
+                            onPress={handleDeleteTeam}
+                        >
+                            <Ionicons name="trash-outline" size={18} color="#FFF" />
+                            <Text style={styles.deleteTeamButtonText}>Delete Team</Text>
                         </TouchableOpacity>
                     </View>
 
@@ -465,6 +526,9 @@ const styles = StyleSheet.create({
 
     manageRosterButton: { flexDirection: 'row', backgroundColor: '#F5F5F5', height: 42, borderRadius: 20, borderWidth: 1.5, borderColor: '#000', justifyContent: 'center', alignItems: 'center', gap: 8, marginTop: 16 },
     manageRosterButtonText: { fontFamily: 'BalsamiqSans_700Bold', fontSize: 13, color: '#000' },
+    
+    deleteTeamButton: { flexDirection: 'row', backgroundColor: '#FF3B30', height: 42, borderRadius: 20, borderWidth: 1.5, borderColor: '#000', justifyContent: 'center', alignItems: 'center', gap: 8, marginTop: 10 },
+    deleteTeamButtonText: { fontFamily: 'BalsamiqSans_700Bold', fontSize: 13, color: '#FFF' },
 
     sectionTitle: { fontFamily: 'BalsamiqSans_700Bold', fontSize: 20, textDecorationLine: 'underline', marginHorizontal: 20, marginTop: 25 },
     activityHorizontalTrack: { paddingHorizontal: 15, paddingVertical: 12, gap: 10, alignItems: 'center' },

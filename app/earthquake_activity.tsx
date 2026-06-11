@@ -5,6 +5,20 @@ import {
 } from '@expo-google-fonts/balsamiq-sans';
 import { Ionicons } from '@expo/vector-icons';
 import { Stack, useRouter } from 'expo-router';
+import { Accelerometer } from 'expo-sensors';
+import { getAuth } from 'firebase/auth';
+import {
+    addDoc,
+    collection,
+    doc,
+    getDoc,
+    getDocs,
+    limit,
+    orderBy,
+    query,
+    Timestamp,
+    where
+} from 'firebase/firestore';
 import React, { useEffect, useRef, useState } from 'react';
 import {
     ActivityIndicator,
@@ -21,30 +35,8 @@ import {
     View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-
-// --- EXPONENT SENSORS IMPORT ---
-import { Accelerometer } from 'expo-sensors';
-
-// --- FIREBASE IMPORTS ---
-import { getAuth } from 'firebase/auth';
-import {
-    addDoc,
-    collection,
-    doc,
-    getDoc,
-    getDocs,
-    limit,
-    orderBy,
-    query,
-    Timestamp,
-    where
-} from 'firebase/firestore';
+import { earthquakeOps } from '../database/db';
 import { db_cloud } from '../services/firebase_config';
-
-// --- LOCAL DATABASE UTILITIES IMPORT ---
-import { earthquakeOps } from '../database/db'; // Added to route time-series parameters to device structures
-
-// --- THEME IMPORTS ---
 import { themes } from '../theme/theme';
 import { useTheme } from '../theme/theme_context';
 
@@ -52,19 +44,19 @@ const { width, height } = Dimensions.get('window');
 const ACTIVITY_ID = "9QUEyTVnLCsuXBgWcCQs"; 
 const TEST_DURATION_MS = 5000; 
 
+// enable layout animation for android
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
     UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
+// ─── Per-screen content ───────────────────────────────────────────────────────
 export default function EarthquakeActivityScreen() {
     const router = useRouter();
     const [fontsLoaded] = useFonts({ BalsamiqSans_400Regular, BalsamiqSans_700Bold });
 
-    // --- CONSUME GLOBAL THEME CONTEXT ---
     const { isDarkMode } = useTheme();
     const currentTheme = isDarkMode ? themes.dark : themes.light;
 
-    // --- SYSTEM STATES ---
     const [currentMember, setCurrentMember] = useState(1);
     const [totalMembers, setTotalMembers] = useState(0);
     const [teamId, setTeamId] = useState<string | null>(null);
@@ -72,17 +64,14 @@ export default function EarthquakeActivityScreen() {
     const [loading, setLoading] = useState(true);
     const [isFinishing, setIsFinishing] = useState(false);
 
-    // --- ACTIVITY FLOW STATES ---
     const [designNum, setDesignNum] = useState(1); 
     const [gameState, setGameState] = useState<'idle' | 'testing' | 'result'>('idle');
     const [countdown, setCountdown] = useState(TEST_DURATION_MS / 1000);
     
-    // --- TELEMETRY AND METRICS STATES ---
     const [currentGForce, setCurrentGForce] = useState(1.0);
     const [peakDeviation, setPeakDeviation] = useState(0); 
     const [averageTiltDeflection, setAverageTiltDeflection] = useState(0); 
 
-    // --- UI NOTIFICATION & MODAL STATES ---
     const [toastMessage, setToastMessage] = useState('');
     const toastOpacity = useRef(new Animated.Value(0)).current;
     
@@ -93,7 +82,6 @@ export default function EarthquakeActivityScreen() {
         type: 'info' 
     });
 
-    // References for analytical math
     const testTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const countdownIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const sensorSubscription = useRef<any>(null);
@@ -101,7 +89,6 @@ export default function EarthquakeActivityScreen() {
     const runningTiltSumRef = useRef<number>(0);
     const readingsCountRef = useRef<number>(0);
 
-    // --- IN-APP TOAST NOTIFICATION HELPER ---
     const showToast = (message: string) => {
         setToastMessage(message);
         Animated.sequence([
@@ -111,7 +98,6 @@ export default function EarthquakeActivityScreen() {
         ]).start(() => setToastMessage(''));
     };
 
-    // --- 1. LIVE ACCELEROMETER METRICS ENGINE ---
     useEffect(() => {
         if (gameState !== 'testing') {
             if (sensorSubscription.current) {
@@ -121,6 +107,7 @@ export default function EarthquakeActivityScreen() {
             return;
         }
 
+        // spin up fast sensor polls to trace sudden stress shakes
         Accelerometer.setUpdateInterval(50); 
         
         sensorSubscription.current = Accelerometer.addListener(accelerometerData => {
@@ -136,6 +123,7 @@ export default function EarthquakeActivityScreen() {
                 runningPeakRef.current = deviation;
             }
 
+            // extract pitch tilt degrees using inverse cosine conversions
             const tiltDegrees = Math.acos(Math.min(Math.abs(accelerometerData.z), 1.0)) * (180 / Math.PI);
             runningTiltSumRef.current += tiltDegrees;
             readingsCountRef.current += 1;
@@ -146,7 +134,6 @@ export default function EarthquakeActivityScreen() {
         };
     }, [gameState]);
 
-    // --- 2. RETRIEVE METADATA AND SESSION LINKS ---
     useEffect(() => {
         const fetchData = async () => {
             try {
@@ -162,6 +149,7 @@ export default function EarthquakeActivityScreen() {
                         const memberSnap = await getDocs(qMembers);
                         setTotalMembers(memberSnap.size || 1);
 
+                        // pull context parameters from the active loop setup session
                         const qAttempt = query(
                             collection(db_cloud, "FC_Attempt"),
                             where("TeamID", "==", tId),
@@ -184,7 +172,6 @@ export default function EarthquakeActivityScreen() {
         fetchData();
     }, []);
 
-    // --- 3. LIFECYCLE MANAGEMENT ---
     const startStructuralTest = () => {
         runningPeakRef.current = 0;
         runningTiltSumRef.current = 0;
@@ -202,6 +189,7 @@ export default function EarthquakeActivityScreen() {
         testTimerRef.current = setTimeout(() => {
             if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
             
+            // trigger early validation exits on cheat shakes or dead data
             if (runningPeakRef.current > 3.5) {
                 setGameState('idle');
                 setAlertModal({
@@ -222,6 +210,7 @@ export default function EarthquakeActivityScreen() {
                 return;
             }
 
+            // scalar conversion mapping total structural shake forces to approximate cm
             const computedMovecm = runningPeakRef.current * 12.5; 
             const computedAvgTilt = readingsCountRef.current > 0 
                 ? runningTiltSumRef.current / readingsCountRef.current 
@@ -235,8 +224,8 @@ export default function EarthquakeActivityScreen() {
             setGameState('result');
             showToast(`Simulation Complete: Design ${designNum}`);
 
-            // --- INJECT LOCAL SQLITE DATA LOGGER WRITER ---
             try {
+                // backup verified simulation parameters directly to local sqlite database
                 earthquakeOps.insertTrial({
                     attempt_id: lastAttemptId || "UNKNOWN",
                     member_number: currentMember,
@@ -251,7 +240,6 @@ export default function EarthquakeActivityScreen() {
         }, TEST_DURATION_MS);
     };
 
-    // --- 4. STEP PROGRESSION CORE ---
     const nextStep = () => {
         LayoutAnimation.configureNext(LayoutAnimation.Presets.spring);
         if (designNum < 3) {
@@ -272,7 +260,6 @@ export default function EarthquakeActivityScreen() {
         }
     };
 
-    // --- 5. COMPLETION SUBMISSION INTERACTIVE LAYER ---
     const handleFinishChallenge = async () => {
         if (isFinishing) return;
         setIsFinishing(true);
@@ -295,7 +282,7 @@ export default function EarthquakeActivityScreen() {
                     params: {
                         activityId: ACTIVITY_ID,
                         activityTitle: "Earthquake-Resistant Structure",
-                        attemptId: lastAttemptId || "UNKNOWN" // Passed along to lock data onto our Dashboard summaries
+                        attemptId: lastAttemptId || "UNKNOWN" 
                     }
                 });
             }, 1000);
@@ -322,7 +309,6 @@ export default function EarthquakeActivityScreen() {
     };
 
     if (!fontsLoaded || loading) {
-        /* Adaptive layout wrapper fallback color mapping */
         return (
             <View style={[styles.loader, { backgroundColor: isDarkMode ? '#141414' : '#F3F0E9' }]}>
                 <ActivityIndicator size="large" color="#00E5FF" />
@@ -331,11 +317,9 @@ export default function EarthquakeActivityScreen() {
     }
 
     return (
-        /* Dynamic Theme Background Image Swap */
         <ImageBackground source={currentTheme.backgroundImage} style={styles.background}>
             <Stack.Screen options={{ headerShown: false }} />
             
-            {/* --- IN-APP TOAST NOTIFICATION BADGE --- */}
             {toastMessage ? (
                 <Animated.View style={[styles.toastContainer, { opacity: toastOpacity }]}>
                     <Ionicons name="checkmark-circle" size={20} color="#00E5FF" />
@@ -343,7 +327,6 @@ export default function EarthquakeActivityScreen() {
                 </Animated.View>
             ) : null}
 
-            {/* --- CLEAR ANNOUNCEMENT POP-UP MODAL --- */}
             <Modal transparent visible={alertModal.visible} animationType="fade">
                 <View style={styles.modalOverlay}>
                     <View style={styles.modalBox}>
@@ -381,14 +364,12 @@ export default function EarthquakeActivityScreen() {
             <SafeAreaView style={styles.safeArea} edges={['left', 'right']}>
                 <View style={styles.content}>
                     
-                    {/* Title Section (Dynamic text color applied) */}
                     <View style={styles.titleSection}>
                         <Text style={[styles.recordingTag, { color: currentTheme.textColor }]}>Seismic Structural Monitor</Text>
                         <Text style={[styles.activityName, { color: currentTheme.textColor }]}>Earthquake-Resistant Architecture Profile</Text>
                         <Text style={styles.phaseIndicator}>{getDesignLabel(designNum)}</Text>
                     </View>
 
-                    {/* --- MAIN INTERACTIVE LOAD AREA --- */}
                     <View style={styles.interactiveZone}>
                         {gameState === 'idle' && (
                             <TouchableOpacity style={styles.mainCircleIdle} onPress={startStructuralTest}>
@@ -421,7 +402,6 @@ export default function EarthquakeActivityScreen() {
                         )}
                     </View>
 
-                    {/* Run Identifier Status Tracker (Dynamic text color applied) */}
                     <View style={styles.statusRow}>
                         <View style={gameState === 'testing' ? styles.greenDot : styles.redDot} />
                         <Text style={[styles.statusText, { color: currentTheme.textColor }]}>
@@ -429,7 +409,6 @@ export default function EarthquakeActivityScreen() {
                         </Text>
                     </View>
 
-                    {/* --- STEP STEPPER CONTROL ACTION BUTTON --- */}
                     <TouchableOpacity 
                         style={[styles.nextBtn, (gameState !== 'result' || isFinishing) && { opacity: 0.3 }]} 
                         onPress={nextStep}
@@ -464,6 +443,7 @@ export default function EarthquakeActivityScreen() {
     );
 }
 
+// ─── Styles ───────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
     background: { flex: 1 },
     safeArea: { flex: 1 },

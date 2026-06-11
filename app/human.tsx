@@ -5,6 +5,7 @@ import {
 } from '@expo-google-fonts/balsamiq-sans';
 import { Ionicons } from '@expo/vector-icons';
 import { Stack, useRouter } from 'expo-router';
+import { doc, getDoc } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
 import {
     ActivityIndicator,
@@ -21,26 +22,22 @@ import {
     View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-
-// --- FIREBASE IMPORTS ---
-import { doc, getDoc } from 'firebase/firestore';
 import { db_cloud } from '../services/firebase_config';
-
-// --- THEME IMPORTS ---
 import { themes } from '../theme/theme';
 import { useTheme } from '../theme/theme_context';
 
 const { width } = Dimensions.get('window');
 
+// allow layout animations on android
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
     UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
+// ─── Per-screen content ───────────────────────────────────────────────────────
 export default function HumanPerformanceLabScreen() {
     const router = useRouter();
     const [fontsLoaded] = useFonts({ BalsamiqSans_400Regular, BalsamiqSans_700Bold });
 
-    // --- CONSUME GLOBAL THEME CONTEXT ---
     const { isDarkMode } = useTheme();
     const currentTheme = isDarkMode ? themes.dark : themes.light;
 
@@ -51,7 +48,7 @@ export default function HumanPerformanceLabScreen() {
     useEffect(() => {
         const fetchActivity = async () => {
             try {
-                // Updated reference ID for Human Performance Lab
+                // hardcoded doc id for human performance lab
                 const actRef = doc(db_cloud, "MS_Activity", "KXCsIyy3aDNUJWtcmbgy");
                 const actSnap = await getDoc(actRef);
                 if (actSnap.exists()) setActivity(actSnap.data());
@@ -65,12 +62,13 @@ export default function HumanPerformanceLabScreen() {
     }, []);
 
     const toggleCurriculum = () => {
+        // animate height layout updates smoothly
         LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
         setShowCurriculum(!showCurriculum);
     };
 
     if (!fontsLoaded || loading) {
-        /* Adaptive background color container fallback during layout builder instances */
+        // fallback loader to avoid white screen flash
         return (
             <View style={[styles.loader, { backgroundColor: isDarkMode ? '#141414' : '#F3F0E9' }]}>
                 <ActivityIndicator size="large" color="#00E5FF" />
@@ -79,11 +77,9 @@ export default function HumanPerformanceLabScreen() {
     }
 
     return (
-        /* Dynamic Theme Background Image Swap */
         <ImageBackground source={currentTheme.backgroundImage} style={styles.background}>
             <Stack.Screen options={{ headerShown: false }} />
             
-            {/* --- TOP BAR --- */}
             <View style={styles.headerWrapper}>
                 <SafeAreaView edges={['top']}>
                     <View style={styles.topBar}>
@@ -100,7 +96,6 @@ export default function HumanPerformanceLabScreen() {
             <SafeAreaView style={styles.safeArea} edges={['left', 'right', 'bottom']}>
                 <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.mainScroll}>
                     
-                    {/* Title Section (Dynamic text colors applied) */}
                     <View style={styles.titleSection}>
                         <Text style={[styles.labelItalic, { color: currentTheme.textColor }]}>Activity:</Text>
                         <Text style={[styles.activityName, { color: currentTheme.textColor }]}>
@@ -108,7 +103,6 @@ export default function HumanPerformanceLabScreen() {
                         </Text>
                     </View>
 
-                    {/* --- CURRICULUM LINKS SECTION --- */}
                     <TouchableOpacity onPress={toggleCurriculum} style={[styles.curriculumBtn, showCurriculum && styles.curriculumExpanded]}>
                         <View style={styles.curriculumHeader}>
                             <Ionicons name="link-outline" size={18} color="#000" />
@@ -126,10 +120,8 @@ export default function HumanPerformanceLabScreen() {
                         )}
                     </TouchableOpacity>
 
-                    {/* Dynamic section heading color applied */}
                     <Text style={[styles.sectionHeadingUnderlined, { color: currentTheme.textColor }]}>Activity Requirements</Text>
 
-                    {/* --- OVERVIEW BOX --- */}
                     <View style={styles.overviewBox}>
                         <Image source={require('../assets/images/human_snippet.png')} style={styles.reactionIcon} />
                         <View style={styles.overviewTextContainer}>
@@ -140,7 +132,6 @@ export default function HumanPerformanceLabScreen() {
                         </View>
                     </View>
 
-                    {/* --- WRITE-UP GUIDE SECTION --- */}
                     <View style={styles.notebookContainer}>
                         <View style={styles.notebookHeader}>
                             <Text style={styles.notebookTitle}>Write-up (on paper):</Text>
@@ -153,7 +144,6 @@ export default function HumanPerformanceLabScreen() {
                             <Text style={styles.bulletPoint}>• Any surprises?</Text>
                         </View>
 
-                        {/* DATA TABLE VISUALIZATION */}
                         <View style={styles.tableWrapper}>
                             <View style={styles.tableRow}>
                                 <View style={[styles.tableCell, styles.headerCell, { flex: 0.8 }]} />
@@ -168,7 +158,6 @@ export default function HumanPerformanceLabScreen() {
                                 </View>
                             </View>
 
-                            {/* Attempt 1 */}
                             <View style={styles.tableRow}>
                                 <View style={[styles.tableCell, { flex: 0.8 }]}>
                                     <Text style={styles.rowLabel}>Attempt 1</Text>
@@ -182,7 +171,6 @@ export default function HumanPerformanceLabScreen() {
                                 <View style={styles.tableCell} />
                             </View>
 
-                            {/* Attempt 2 */}
                             <View style={styles.tableRow}>
                                 <View style={[styles.tableCell, { flex: 0.8 }]}>
                                     <Text style={styles.rowLabel}>Attempt 2</Text>
@@ -194,7 +182,6 @@ export default function HumanPerformanceLabScreen() {
                                 <View style={styles.tableCell} />
                             </View>
 
-                            {/* Attempt 3 */}
                             <View style={[styles.tableRow, { borderBottomWidth: 0 }]}>
                                 <View style={[styles.tableCell, { flex: 0.8 }]}>
                                     <Text style={styles.rowLabel}>Attempt 3</Text>
@@ -215,7 +202,6 @@ export default function HumanPerformanceLabScreen() {
 
                 </ScrollView>
 
-                {/* BOTTOM TAB NAVIGATION */}
                 <View style={styles.bottomTabs}>
                     <TouchableOpacity style={styles.tabItem} onPress={() => router.push('/home')}>
                         <Image source={require('../assets/images/Home.png')} style={styles.tabIcon} />
@@ -235,6 +221,7 @@ export default function HumanPerformanceLabScreen() {
     );
 }
 
+// ─── Styles ───────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
     background: { flex: 1 },
     safeArea: { flex: 1 },

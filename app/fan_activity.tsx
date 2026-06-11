@@ -5,29 +5,7 @@ import {
 } from '@expo-google-fonts/balsamiq-sans';
 import { Ionicons } from '@expo/vector-icons';
 import { Stack, useRouter } from 'expo-router';
-import React, { useEffect, useRef, useState } from 'react';
-import {
-    ActivityIndicator,
-    Animated,
-    Dimensions,
-    ImageBackground,
-    LayoutAnimation,
-    Modal,
-    Platform,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    UIManager,
-    View,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-
-// --- EXPONENT SENSORS IMPORT ---
 import { Accelerometer } from 'expo-sensors';
-
-// --- FIREBASE IMPORTS ---
 import { getAuth } from 'firebase/auth';
 import {
     addDoc,
@@ -41,12 +19,25 @@ import {
     Timestamp,
     where
 } from 'firebase/firestore';
+import React, { useEffect, useRef, useState } from 'react';
+import {
+    Animated,
+    Dimensions,
+    ImageBackground,
+    LayoutAnimation,
+    Modal,
+    Platform,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    UIManager,
+    View
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { fanOps } from '../database/db';
 import { db_cloud } from '../services/firebase_config';
-
-// --- LOCAL DATABASE UTILITIES IMPORT ---
-import { fanOps } from '../database/db'; // Added to route time-series parameters to device structures
-
-// --- THEME IMPORTS ---
 import { themes } from '../theme/theme';
 import { useTheme } from '../theme/theme_context';
 
@@ -58,15 +49,14 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
     UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
+// ─── Per-screen content ───────────────────────────────────────────────────────
 export default function FanActivityScreen() {
     const router = useRouter();
     const [fontsLoaded] = useFonts({ BalsamiqSans_400Regular, BalsamiqSans_700Bold });
 
-    // --- CONSUME GLOBAL THEME CONTEXT ---
     const { isDarkMode } = useTheme();
     const currentTheme = isDarkMode ? themes.dark : themes.light;
 
-    // --- EXPERIMENT STEPPING STATES ---
     const [currentMember, setCurrentMember] = useState(1);
     const [totalMembers, setTotalMembers] = useState(0);
     const [teamId, setTeamId] = useState<string | null>(null);
@@ -74,14 +64,12 @@ export default function FanActivityScreen() {
     const [loading, setLoading] = useState(true);
     const [isFinishing, setIsFinishing] = useState(false);
 
-    // Activity tracking matrices
     const [targetMaterial, setTargetMaterial] = useState<'Paper' | 'Cardboard'>('Paper');
     const [currentDistance, setCurrentDistance] = useState<'15cm' | '30cm' | '45cm'>('30cm');
     const [fanDesign, setFanDesign] = useState<1 | 2 | 3>(1);
     const [experimentState, setExperimentState] = useState<'idle' | 'fanning' | 'recorded'>('idle');
     const [fanningTime, setFanningTime] = useState(0);
 
-    // UI NOTIFICATION & MODAL STATES
     const [toastMessage, setToastMessage] = useState('');
     const toastOpacity = useRef(new Animated.Value(0)).current;
     
@@ -92,7 +80,6 @@ export default function FanActivityScreen() {
         type: 'info' 
     });
 
-    // --- OPTIONAL CHALLENGE LAYER STATES ---
     const [showChallengePrompt, setShowChallengePrompt] = useState(false);
     const [challengeActive, setChallengeActive] = useState(false);
     const [selectedMaterial, setSelectedMaterial] = useState<string>('Thin printer paper');
@@ -100,12 +87,10 @@ export default function FanActivityScreen() {
     const [observedAngleStr, setObservedAngleStr] = useState<string>('30');
     const [calculatedForce, setCalculatedForce] = useState<string>('0.0260');
 
-    // Environmental Surface Sensor State
     const [isFlat, setIsFlat] = useState(true);
     const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const sensorSubscription = useRef<any>(null);
 
-    // Material Matrix
     const materialMatrix = [
         { name: 'Thin printer paper', thickness: '0.1mm', k: 0.05, notes: 'Bends very easily' },
         { name: 'Standard card stock', thickness: '0.25mm', k: 0.20, notes: 'Moderate bend' },
@@ -113,7 +98,6 @@ export default function FanActivityScreen() {
         { name: 'Corrugated cardboard', thickness: '3.0mm', k: 2.50, notes: 'Very stiff, k range: 2-3' },
     ];
 
-    // --- IN-APP TOAST NOTIFICATION HELPER ---
     const showToast = (message: string) => {
         setToastMessage(message);
         Animated.sequence([
@@ -123,7 +107,6 @@ export default function FanActivityScreen() {
         ]).start(() => setToastMessage(''));
     };
 
-    // --- 1. SENSOR CONTROL PROFILE (BATTERY OPTIMIZED) ---
     useEffect(() => {
         if (challengeActive || experimentState === 'recorded') {
             if (sensorSubscription.current) {
@@ -139,6 +122,7 @@ export default function FanActivityScreen() {
             const flat = Math.abs(data.x) < FLATNESS_TOLERANCE && Math.abs(data.y) < FLATNESS_TOLERANCE;
             setIsFlat(flat);
 
+            // abort running clock instantly if phone tilts mid-fanning
             if (!flat && experimentState === 'fanning') {
                 if (timerRef.current) {
                     clearInterval(timerRef.current);
@@ -154,7 +138,6 @@ export default function FanActivityScreen() {
         };
     }, [experimentState, challengeActive]);
 
-    // --- 2. RETRIEVE METADATA ---
     useEffect(() => {
         const fetchData = async () => {
             try {
@@ -170,6 +153,7 @@ export default function FanActivityScreen() {
                         const memberSnap = await getDocs(qMembers);
                         setTotalMembers(memberSnap.size || 1);
 
+                        // pull context from most recent active group session
                         const qAttempt = query(
                             collection(db_cloud, "FC_Attempt"),
                             where("TeamID", "==", tId),
@@ -192,8 +176,8 @@ export default function FanActivityScreen() {
         fetchData();
     }, []);
 
-    // --- 3. LIVE PHYSICS CALCULATION ENGINE ---
     useEffect(() => {
+        // degrees to radians formula engine update logic
         const deg = parseFloat(observedAngleStr);
         if (!isNaN(deg) && deg >= 0) {
             const radians = deg * (Math.PI / 180);
@@ -204,7 +188,6 @@ export default function FanActivityScreen() {
         }
     }, [selectedMaterial, stiffnessK, observedAngleStr]);
 
-    // --- 4. ENGINE CONTROLS ---
     const startFanningTimer = () => {
         if (!isFlat) return;
         setExperimentState('fanning');
@@ -220,6 +203,7 @@ export default function FanActivityScreen() {
             timerRef.current = null;
         }
 
+        // enforce minimum timing threshold to ensure stable wave current
         if (fanningTime < 3) {
             setExperimentState('idle');
             setFanningTime(0);
@@ -233,8 +217,8 @@ export default function FanActivityScreen() {
             setExperimentState('recorded');
             showToast("Run Captured! Log your deflection angles.");
 
-            // --- INJECT LOCAL SQLITE STANDARD TRIAL WRITER ---
             try {
+                // insert standard tracking metrics straight to sqlite
                 fanOps.insertTrial({
                     attempt_id: lastAttemptId || "UNKNOWN",
                     member_number: currentMember,
@@ -256,14 +240,13 @@ export default function FanActivityScreen() {
         setStiffnessK(kValue);
     };
 
-    // --- 5. DATA SAVE PIPELINE ---
     const saveAndExit = async (bonusAccepted: boolean) => {
         if (isFinishing) return;
         setIsFinishing(true);
 
-        // --- INJECT LOCAL SQLITE OPTIONAL CHALLENGE DATA DATA LOG ---
         if (bonusAccepted) {
             try {
+                // cache full mathematical formula rows locally if accepted
                 fanOps.insertTrial({
                     attempt_id: lastAttemptId || "UNKNOWN",
                     member_number: currentMember,
@@ -302,7 +285,7 @@ export default function FanActivityScreen() {
                     params: { 
                         activityId: ACTIVITY_ID, 
                         activityTitle: "Hand Fan Challenge",
-                        attemptId: lastAttemptId || "UNKNOWN" // Passed along to pinpoint custom charts on layout finish screen
+                        attemptId: lastAttemptId || "UNKNOWN" 
                     }
                 });
             }, 1200);
@@ -321,6 +304,7 @@ export default function FanActivityScreen() {
     const progressNextStateStep = () => {
         LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
         
+        // step-wise iterations through materials, design variants, and ranges
         if (fanDesign < 3) {
             setFanDesign(prev => (prev + 1) as 1 | 2 | 3);
             setExperimentState('idle');
@@ -363,21 +347,10 @@ export default function FanActivityScreen() {
         }
     };
 
-    if (!fontsLoaded || loading) {
-        /* Adaptive background color layout configuration mapping */
-        return (
-            <View style={[styles.loader, { backgroundColor: isDarkMode ? '#141414' : '#F3F0E9' }]}>
-                <ActivityIndicator size="large" color="#00E5FF" />
-            </View>
-        );
-    }
-
     return (
-        /* Dynamic Theme Background Image Swap */
         <ImageBackground source={currentTheme.backgroundImage} style={styles.background}>
             <Stack.Screen options={{ headerShown: false }} />
             
-            {/* --- IN-APP TOAST NOTIFICATION BADGE --- */}
             {toastMessage ? (
                 <Animated.View style={[styles.toastContainer, { opacity: toastOpacity }]}>
                     <Ionicons name="checkmark-circle" size={20} color="#00E5FF" />
@@ -385,7 +358,6 @@ export default function FanActivityScreen() {
                 </Animated.View>
             ) : null}
 
-            {/* --- CLEAR ANNOUNCEMENT POP-UP MODAL --- */}
             <Modal transparent visible={alertModal.visible} animationType="fade">
                 <View style={styles.modalOverlay}>
                     <View style={styles.modalBox}>
@@ -433,7 +405,6 @@ export default function FanActivityScreen() {
 
                 <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.mainScroll}>
                     
-                    {/* --- SCIENTIFIC OBSERVATION TIP BOX BLOCK --- */}
                     <View style={styles.tipBox}>
                         <View style={styles.tipHeaderRow}>
                             <Ionicons name="bulb" size={20} color="#FFB300" />
@@ -623,6 +594,7 @@ export default function FanActivityScreen() {
     );
 }
 
+// ─── Styles ───────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
     background: { flex: 1 },
     safeArea: { flex: 1 },

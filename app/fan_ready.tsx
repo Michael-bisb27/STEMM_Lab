@@ -6,6 +6,18 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import { Stack, useRouter } from 'expo-router';
+import { getAuth } from 'firebase/auth';
+import {
+    addDoc,
+    collection,
+    doc,
+    GeoPoint,
+    getDoc,
+    getDocs,
+    query,
+    Timestamp,
+    where
+} from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
 import {
     ActivityIndicator,
@@ -22,50 +34,32 @@ import {
     View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-
-// --- FIREBASE IMPORTS ---
-import { getAuth } from 'firebase/auth';
-import {
-    addDoc,
-    collection,
-    doc,
-    GeoPoint,
-    getDoc,
-    getDocs,
-    query,
-    Timestamp,
-    where
-} from 'firebase/firestore';
 import { db_cloud } from '../services/firebase_config';
-
-// --- THEME IMPORTS ---
 import { themes } from '../theme/theme';
 import { useTheme } from '../theme/theme_context';
 
 const { width } = Dimensions.get('window');
-// Updated with Hand Fan Challenge Activity ID
 const ACTIVITY_ID = "9IWijzqyiclKNayBpFZ1";
 
+// allow layout animations on android
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
     UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
+// ─── Per-screen content ───────────────────────────────────────────────────────
 export default function HandFanReadyScreen() {
     const router = useRouter();
     const [fontsLoaded] = useFonts({ BalsamiqSans_400Regular, BalsamiqSans_700Bold });
 
-    // --- CONSUME GLOBAL THEME CONTEXT ---
     const { isDarkMode } = useTheme();
     const currentTheme = isDarkMode ? themes.dark : themes.light;
 
-    // --- STATES ---
     const [activity, setActivity] = useState<any>(null);
     const [loading, setLoading] = useState(true);
     const [isStarting, setIsStarting] = useState(false);
     const [teamMemberCount, setTeamMemberCount] = useState(0);
     const [teamId, setTeamId] = useState<string | null>(null);
     
-    // Core Nested Checklist State (Refactored from Code A)
     const [materialsChecked, setMaterialsChecked] = useState({
         paperCardboard: false,
         scissors: false,
@@ -75,7 +69,6 @@ export default function HandFanReadyScreen() {
     const [isUserPrepared, setIsUserPrepared] = useState(false);
     const [isSafeSpace, setIsSafeSpace] = useState(false);
 
-    // --- INITIAL DATA FETCH ---
     useEffect(() => {
         const fetchData = async () => {
             try {
@@ -95,6 +88,7 @@ export default function HandFanReadyScreen() {
                         setTeamId(tId);
 
                         if (tId) {
+                            // cross-reference team members query
                             const studentsQuery = query(
                                 collection(db_cloud, "MS_Student"),
                                 where("teamID", "==", tId)
@@ -114,13 +108,11 @@ export default function HandFanReadyScreen() {
         fetchData();
     }, []);
 
-    // --- START CHALLENGE ---
     const handleStartChallenge = async () => {
         if (!teamId) return Alert.alert("Error", "No Team Session found.");
         
         setIsStarting(true);
         try {
-            // Check GPS Permission
             let { status } = await Location.requestForegroundPermissionsAsync();
             if (status !== 'granted') {
                 Alert.alert("Permission Denied", "GPS tracking permissions are required to log activity location.");
@@ -128,11 +120,10 @@ export default function HandFanReadyScreen() {
                 return;
             }
 
-            // Get Position
             const location = await Location.getCurrentPositionAsync({});
             const { latitude, longitude } = location.coords;
 
-            // Geofence boundaries checking (Exactly matching reference code)
+            // hardcoded regional school geofence check
             const isWithinZone = 
                 latitude >= -6.23 && latitude <= -6.19 && 
                 longitude >= 106.79 && longitude <= 106.82;
@@ -143,7 +134,6 @@ export default function HandFanReadyScreen() {
                 return;
             }
 
-            // --- ROOT COLLECTION TRIAL LOGIC ---
             const attemptRef = collection(db_cloud, "FC_Attempt");
             const q = query(
                 attemptRef, 
@@ -151,10 +141,10 @@ export default function HandFanReadyScreen() {
                 where("ActivityID", "==", ACTIVITY_ID)
             );
             
+            // fetch counts to dynamically increment next trial number
             const querySnapshot = await getDocs(q);
             const nextTrialNumber = querySnapshot.size + 1;
 
-            // Create Attempt in Root Collection
             await addDoc(attemptRef, {
                 ActivityID: ACTIVITY_ID,
                 GPS_Coordinates: new GeoPoint(latitude, longitude),
@@ -174,7 +164,6 @@ export default function HandFanReadyScreen() {
         }
     };
 
-    // --- DYNAMIC CHECKLIST & PROGRESS LOGIC ---
     const toggleMaterial = (key: keyof typeof materialsChecked) => {
         LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
         setMaterialsChecked(prev => ({ ...prev, [key]: !prev[key] }));
@@ -193,10 +182,12 @@ export default function HandFanReadyScreen() {
     const progressPercent = (completedTasks / checklistItems.length) * 100;
 
     useEffect(() => {
+        // fire spring animations natively on update shifts
         LayoutAnimation.configureNext(LayoutAnimation.Presets.spring);
     }, [completedTasks]);
 
     if (!fontsLoaded || loading) {
+        // fallback layout base to avoid early screen pops
         return (
             <View style={[styles.loader, { backgroundColor: isDarkMode ? '#141414' : '#F3F0E9' }]}>
                 <ActivityIndicator size="large" color="#00E5FF" />
@@ -205,7 +196,6 @@ export default function HandFanReadyScreen() {
     }
 
     return (
-        /* Dynamic Theme Background Image Swap */
         <ImageBackground source={currentTheme.backgroundImage} style={styles.background}>
             <Stack.Screen options={{ headerShown: false }} />
             
@@ -235,13 +225,11 @@ export default function HandFanReadyScreen() {
             <SafeAreaView style={styles.safeArea} edges={['left', 'right', 'bottom']}>
                 <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.mainScroll}>
                     
-                    {/* Title Section (Dynamic colors applied) */}
                     <View style={styles.titleSection}>
                         <Text style={[styles.phaseTag, { color: currentTheme.textColor }]}>Readiness Phase:</Text>
                         <Text style={[styles.activityName, { color: currentTheme.textColor }]}>{activity?.activityName || "Hand Fan Challenge"}</Text>
                     </View>
 
-                    {/* Instruction Box remains static white block */}
                     <View style={styles.overviewBox}>
                         <View style={styles.overviewTextContainer}>
                             <Text style={styles.overviewTitle}>Instructions:</Text>
@@ -255,10 +243,8 @@ export default function HandFanReadyScreen() {
                         </View>
                     </View>
 
-                    {/* Dynamic section header color applied */}
                     <Text style={[styles.sectionHeadingUnderlined, { color: currentTheme.textColor }]}>Team Readiness Checklist:</Text>
 
-                    {/* --- NESTED MATERIALS CHECKLIST (Kept solid white box for card text visibility) --- */}
                     <View style={[styles.checkItem, styles.whiteCheckItem]}>
                         <View style={styles.checkHeader}>
                             <Ionicons 
@@ -291,7 +277,6 @@ export default function HandFanReadyScreen() {
                         </View>
                     </View>
 
-                    {/* Check 2: User Prepared (Dynamic borders & colors applied) */}
                     <TouchableOpacity style={[styles.checkItem, { borderColor: isDarkMode ? currentTheme.textColor : '#DDD' }]} onPress={() => setIsUserPrepared(!isUserPrepared)}>
                         <View style={styles.checkHeader}>
                             <Ionicons name={isUserPrepared ? "checkbox" : "square-outline"} size={24} color={isUserPrepared ? "#00E5FF" : currentTheme.textColor} />
@@ -299,7 +284,6 @@ export default function HandFanReadyScreen() {
                         </View>
                     </TouchableOpacity>
 
-                    {/* Check 3: Safe and Clear Space (Dynamic borders & colors applied) */}
                     <TouchableOpacity style={[styles.checkItem, { borderColor: isDarkMode ? currentTheme.textColor : '#DDD' }]} onPress={() => setIsSafeSpace(!isSafeSpace)}>
                         <View style={styles.checkHeader}>
                             <Ionicons name={isSafeSpace ? "checkbox" : "square-outline"} size={24} color={isSafeSpace ? "#00E5FF" : currentTheme.textColor} />
@@ -330,6 +314,7 @@ export default function HandFanReadyScreen() {
     );
 }
 
+// ─── Styles ───────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
     background: { flex: 1 },
     safeArea: { flex: 1 },

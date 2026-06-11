@@ -5,6 +5,7 @@ import {
 } from '@expo-google-fonts/balsamiq-sans';
 import { Ionicons } from '@expo/vector-icons';
 import { Stack, useRouter } from 'expo-router';
+import { doc, getDoc } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
 import {
     ActivityIndicator,
@@ -21,26 +22,22 @@ import {
     View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-
-// --- FIREBASE IMPORTS ---
-import { doc, getDoc } from 'firebase/firestore';
 import { db_cloud } from '../services/firebase_config';
-
-// --- THEME IMPORTS ---
 import { themes } from '../theme/theme';
 import { useTheme } from '../theme/theme_context';
 
 const { width } = Dimensions.get('window');
 
+// enable layout animation for android
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
     UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
+// ─── Per-screen content ───────────────────────────────────────────────────────
 export default function EarthquakeStructureScreen() {
     const router = useRouter();
     const [fontsLoaded] = useFonts({ BalsamiqSans_400Regular, BalsamiqSans_700Bold });
 
-    // --- CONSUME GLOBAL THEME CONTEXT ---
     const { isDarkMode } = useTheme();
     const currentTheme = isDarkMode ? themes.dark : themes.light;
 
@@ -51,7 +48,7 @@ export default function EarthquakeStructureScreen() {
     useEffect(() => {
         const fetchActivity = async () => {
             try {
-                // Updated with the new document ID for Earthquake-Resistant Structure
+                // hardcoded doc id for earthquake activity
                 const actRef = doc(db_cloud, "MS_Activity", "9QUEyTVnLCsuXBgWcCQs");
                 const actSnap = await getDoc(actRef);
                 if (actSnap.exists()) setActivity(actSnap.data());
@@ -65,12 +62,13 @@ export default function EarthquakeStructureScreen() {
     }, []);
 
     const toggleCurriculum = () => {
+        // animate height layout updates smoothly
         LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
         setShowCurriculum(!showCurriculum);
     };
 
     if (!fontsLoaded || loading) {
-        /* Adaptive background color container fallback during layout builder instances */
+        // fallback loader to avoid white screen flash
         return (
             <View style={[styles.loader, { backgroundColor: isDarkMode ? '#141414' : '#F3F0E9' }]}>
                 <ActivityIndicator size="large" color="#00E5FF" />
@@ -79,11 +77,9 @@ export default function EarthquakeStructureScreen() {
     }
 
     return (
-        /* Dynamic Theme Background Image Swap */
         <ImageBackground source={currentTheme.backgroundImage} style={styles.background}>
             <Stack.Screen options={{ headerShown: false }} />
             
-            {/* --- TOP BAR --- */}
             <View style={styles.headerWrapper}>
                 <SafeAreaView edges={['top']}>
                     <View style={styles.topBar}>
@@ -100,13 +96,11 @@ export default function EarthquakeStructureScreen() {
             <SafeAreaView style={styles.safeArea} edges={['left', 'right', 'bottom']}>
                 <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.mainScroll}>
                     
-                    {/* Title Section (Dynamic text color applied) */}
                     <View style={styles.titleSection}>
                         <Text style={[styles.labelItalic, { color: currentTheme.textColor }]}>Activity:</Text>
                         <Text style={[styles.activityName, { color: currentTheme.textColor }]}>{activity?.activityName || "Earthquake-Resistant Structure"}</Text>
                     </View>
 
-                    {/* --- CURRICULUM LINKS SECTION --- */}
                     <TouchableOpacity onPress={toggleCurriculum} style={[styles.curriculumBtn, showCurriculum && styles.curriculumExpanded]}>
                         <View style={styles.curriculumHeader}>
                             <Ionicons name="link-outline" size={18} color="#000" />
@@ -121,10 +115,8 @@ export default function EarthquakeStructureScreen() {
                         )}
                     </TouchableOpacity>
 
-                    {/* Dynamic section heading color applied */}
                     <Text style={[styles.sectionHeadingUnderlined, { color: currentTheme.textColor }]}>Activity Requirements</Text>
 
-                    {/* --- OVERVIEW BOX --- */}
                     <View style={styles.overviewBox}>
                         <Image source={require('../assets/images/earthquake_snippet.png')} style={styles.earthquakeIcon} />
                         <View style={styles.overviewTextContainer}>
@@ -135,7 +127,6 @@ export default function EarthquakeStructureScreen() {
                         </View>
                     </View>
 
-                    {/* --- WRITE-UP GUIDE SECTION --- */}
                     <View style={styles.notebookContainer}>
                         <View style={styles.notebookHeader}>
                             <Text style={styles.notebookTitle}>Write-up (on paper):</Text>
@@ -148,9 +139,7 @@ export default function EarthquakeStructureScreen() {
                             <Text style={styles.bulletPoint}>• Any surprises?</Text>
                         </View>
 
-                        {/* DATA TABLE VISUALIZATION */}
                         <View style={styles.tableWrapper}>
-                            {/* Table Header Row */}
                             <View style={styles.tableRow}>
                                 <View style={[styles.tableCell, styles.headerCell, { flex: 1.2 }]} />
                                 <View style={[styles.tableCell, styles.headerCell]}>
@@ -164,7 +153,6 @@ export default function EarthquakeStructureScreen() {
                                 </View>
                             </View>
 
-                            {/* Design Row 1 */}
                             <View style={styles.tableRow}>
                                 <View style={[styles.tableCell, { flex: 1.2 }]}>
                                     <Text style={styles.rowLabel}>Design 1</Text>
@@ -179,7 +167,6 @@ export default function EarthquakeStructureScreen() {
                                 <View style={styles.tableCell} />
                             </View>
 
-                            {/* Design Row 2 */}
                             <View style={styles.tableRow}>
                                 <View style={[styles.tableCell, { flex: 1.2 }]}>
                                     <Text style={styles.rowLabel}>Design 2</Text>
@@ -190,7 +177,6 @@ export default function EarthquakeStructureScreen() {
                                 <View style={styles.tableCell} />
                             </View>
 
-                            {/* Design Row 3 */}
                             <View style={[styles.tableRow, { borderBottomWidth: 0 }]}>
                                 <View style={[styles.tableCell, { flex: 1.2 }]}>
                                     <Text style={styles.rowLabel}>Design 3</Text>
@@ -203,7 +189,6 @@ export default function EarthquakeStructureScreen() {
                         </View>
                     </View>
 
-                    {/* REDIRECT TO NEXT STAGE */}
                     <TouchableOpacity 
                         style={styles.startChallengeBtn}
                         onPress={() => router.push('/earthquake_ready')}
@@ -213,7 +198,6 @@ export default function EarthquakeStructureScreen() {
 
                 </ScrollView>
 
-                {/* BOTTOM NAVIGATION TABS */}
                 <View style={styles.bottomTabs}>
                     <TouchableOpacity style={styles.tabItem} onPress={() => router.push('/home')}>
                         <Image source={require('../assets/images/Home.png')} style={styles.tabIcon} />
@@ -233,6 +217,7 @@ export default function EarthquakeStructureScreen() {
     );
 }
 
+// ─── Styles ───────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
     background: { flex: 1 },
     safeArea: { flex: 1 },

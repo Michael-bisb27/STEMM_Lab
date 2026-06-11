@@ -5,6 +5,7 @@ import {
 } from '@expo-google-fonts/balsamiq-sans';
 import { Ionicons } from '@expo/vector-icons';
 import { Stack, useRouter } from 'expo-router';
+import { doc, getDoc } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
 import {
     ActivityIndicator,
@@ -21,26 +22,22 @@ import {
     View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-
-// --- FIREBASE IMPORTS ---
-import { doc, getDoc } from 'firebase/firestore';
 import { db_cloud } from '../services/firebase_config';
-
-// --- THEME IMPORTS ---
 import { themes } from '../theme/theme';
 import { useTheme } from '../theme/theme_context';
 
 const { width } = Dimensions.get('window');
 
+// enable layout animation for android
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
     UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
+// ─── Per-screen content ───────────────────────────────────────────────────────
 export default function ParachuteDropScreen() {
     const router = useRouter();
     const [fontsLoaded] = useFonts({ BalsamiqSans_400Regular, BalsamiqSans_700Bold });
 
-    // --- CONSUME GLOBAL THEME CONTEXT ---
     const { isDarkMode } = useTheme();
     const currentTheme = isDarkMode ? themes.dark : themes.light;
 
@@ -51,7 +48,7 @@ export default function ParachuteDropScreen() {
     useEffect(() => {
         const fetchActivity = async () => {
             try {
-                // Target Doc ID: Qvn4OR5l7pf9pCXB2pkq
+                // hardcoded doc id for middle school activity
                 const actRef = doc(db_cloud, "MS_Activity", "Qvn4OR5l7pf9pCXB2pkq");
                 const actSnap = await getDoc(actRef);
                 if (actSnap.exists()) setActivity(actSnap.data());
@@ -65,12 +62,13 @@ export default function ParachuteDropScreen() {
     }, []);
 
     const toggleCurriculum = () => {
+        // animate height layout updates smoothly
         LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
         setShowCurriculum(!showCurriculum);
     };
 
     if (!fontsLoaded || loading) {
-        /* Adaptive background loader layer container to prevent initial white screen flashes */
+        // fallback loader to avoid white screen flash
         return (
             <View style={[styles.loader, { backgroundColor: isDarkMode ? '#141414' : '#F3F0E9' }]}>
                 <ActivityIndicator size="large" color="#00E5FF" />
@@ -79,11 +77,9 @@ export default function ParachuteDropScreen() {
     }
 
     return (
-        /* Dynamic Theme Background Image Swap */
         <ImageBackground source={currentTheme.backgroundImage} style={styles.background}>
             <Stack.Screen options={{ headerShown: false }} />
             
-            {/* --- TOP BAR --- */}
             <View style={styles.headerWrapper}>
                 <SafeAreaView edges={['top']}>
                     <View style={styles.topBar}>
@@ -98,17 +94,13 @@ export default function ParachuteDropScreen() {
             </View>
 
             <SafeAreaView style={styles.safeArea} edges={['left', 'right', 'bottom']}>
-                {/* 🌟 ADDED testID HERE FOR MAIN VERTICAL SCROLL */}
                 <ScrollView testID="parachuteScrollView" showsVerticalScrollIndicator={false} contentContainerStyle={styles.mainScroll}>
                     
-                    {/* 🌟 ADDED testID HERE FOR THE SWIPE TARGET */}
-                    {/* Title Section (Dynamic text colors applied) */}
                     <View testID="parachuteTitleSection" style={styles.titleSection}>
                         <Text style={[styles.labelItalic, { color: currentTheme.textColor }]}>Activity:</Text>
                         <Text style={[styles.activityName, { color: currentTheme.textColor }]}>{activity?.activityName || "Parachute Drop Challenge"}</Text>
                     </View>
 
-                    {/* EXPANDABLE CURRICULUM CODES */}
                     <TouchableOpacity onPress={toggleCurriculum} style={[styles.curriculumBtn, showCurriculum && styles.curriculumExpanded]}>
                         <View style={styles.curriculumHeader}>
                             <Ionicons name="link-outline" size={18} color="#000" />
@@ -131,7 +123,6 @@ export default function ParachuteDropScreen() {
                         )}
                     </TouchableOpacity>
 
-                    {/* Dynamic text color applied */}
                     <Text style={[styles.sectionHeadingUnderlined, { color: currentTheme.textColor }]}>Activity Requirements</Text>
 
                     <View style={styles.overviewBox}>
@@ -144,7 +135,6 @@ export default function ParachuteDropScreen() {
                         </View>
                     </View>
 
-                    {/* --- WRITE-UP GUIDE SECTION --- */}
                     <View style={styles.notebookContainer}>
                         <View style={styles.notebookHeader}>
                             <Text style={styles.notebookTitle}>Write-up (on paper):</Text>
@@ -158,10 +148,8 @@ export default function ParachuteDropScreen() {
                             <Text style={styles.bulletPoint}>• What design was the easiest to make?</Text>
                         </View>
 
-                        {/* DATA TABLE MATRIX VISUALIZATION */}
                         <ScrollView horizontal showsHorizontalScrollIndicator={true} style={styles.tableScroll}>
                             <View style={styles.tableWrapper}>
-                                {/* Header Row */}
                                 <View style={styles.tableRow}>
                                     <View style={[styles.tableCell, styles.headerCell, { width: 130 }]} />
                                     <View style={[styles.tableCell, styles.headerCell, { width: 120 }]}>
@@ -178,7 +166,6 @@ export default function ParachuteDropScreen() {
                                     </View>
                                 </View>
 
-                                {/* Action 1 Row */}
                                 <View style={styles.tableRow}>
                                     <View style={[styles.tableCell, { width: 130 }]}>
                                         <Text style={styles.rowLabel}>Action 1</Text>
@@ -190,7 +177,6 @@ export default function ParachuteDropScreen() {
                                     <View style={[styles.tableCell, { width: 150 }]} />
                                 </View>
 
-                                {/* Action 2 Row */}
                                 <View style={styles.tableRow}>
                                     <View style={[styles.tableCell, { width: 130 }]}>
                                         <Text style={styles.rowLabel}>Action 2</Text>
@@ -202,7 +188,6 @@ export default function ParachuteDropScreen() {
                                     <View style={[styles.tableCell, { width: 150 }]} />
                                 </View>
 
-                                {/* Action 3 Row */}
                                 <View style={[styles.tableRow, { borderBottomWidth: 0 }]}>
                                     <View style={[styles.tableCell, { width: 130 }]}>
                                         <Text style={styles.rowLabel}>Action 3</Text>
@@ -216,7 +201,6 @@ export default function ParachuteDropScreen() {
                         </ScrollView>
                     </View>
                     
-                    {/* 🌟 ADDED testID HERE TO TARGET BUTTON RELIABLY */}
                     <TouchableOpacity 
                         testID="getReadyButton"
                         style={styles.startChallengeBtn}
@@ -227,7 +211,6 @@ export default function ParachuteDropScreen() {
 
                 </ScrollView>
 
-                {/* BOTTOM TAB NAVIGATION */}
                 <View style={styles.bottomTabs}>
                     <TouchableOpacity style={styles.tabItem} onPress={() => router.push('/home')}>
                         <Image source={require('../assets/images/Home.png')} style={styles.tabIcon} />
@@ -247,6 +230,7 @@ export default function ParachuteDropScreen() {
     );
 }
 
+// ─── Styles ───────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
     background: { flex: 1 },
     safeArea: { flex: 1 },

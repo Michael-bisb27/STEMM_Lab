@@ -5,6 +5,7 @@ import {
 } from '@expo-google-fonts/balsamiq-sans';
 import { Ionicons } from '@expo/vector-icons';
 import { Stack, useRouter } from 'expo-router';
+import { doc, getDoc } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
 import {
     ActivityIndicator,
@@ -21,26 +22,22 @@ import {
     View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-
-// --- FIREBASE IMPORTS ---
-import { doc, getDoc } from 'firebase/firestore';
 import { db_cloud } from '../services/firebase_config';
-
-// --- THEME IMPORTS ---
 import { themes } from '../theme/theme';
 import { useTheme } from '../theme/theme_context';
 
 const { width } = Dimensions.get('window');
 
+// allow layout animations on android
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
     UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
+// ─── Per-screen content ───────────────────────────────────────────────────────
 export default function HandFanChallengeScreen() {
     const router = useRouter();
     const [fontsLoaded] = useFonts({ BalsamiqSans_400Regular, BalsamiqSans_700Bold });
 
-    // --- CONSUME GLOBAL THEME CONTEXT ---
     const { isDarkMode } = useTheme();
     const currentTheme = isDarkMode ? themes.dark : themes.light;
 
@@ -51,7 +48,7 @@ export default function HandFanChallengeScreen() {
     useEffect(() => {
         const fetchActivity = async () => {
             try {
-                // Updated with Hand Fan Challenge Document ID
+                // hardcoded doc id for hand fan activity
                 const actRef = doc(db_cloud, "MS_Activity", "9IWijzqyiclKNayBpFZ1");
                 const actSnap = await getDoc(actRef);
                 if (actSnap.exists()) setActivity(actSnap.data());
@@ -65,12 +62,13 @@ export default function HandFanChallengeScreen() {
     }, []);
 
     const toggleCurriculum = () => {
+        // animate height layout updates smoothly
         LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
         setShowCurriculum(!showCurriculum);
     };
 
     if (!fontsLoaded || loading) {
-        /* Adaptive background color container fallback during layout builder instances */
+        // fallback loader to avoid white screen flash
         return (
             <View style={[styles.loader, { backgroundColor: isDarkMode ? '#141414' : '#F3F0E9' }]}>
                 <ActivityIndicator size="large" color="#00E5FF" />
@@ -79,11 +77,9 @@ export default function HandFanChallengeScreen() {
     }
 
     return (
-        /* Dynamic Theme Background Image Swap */
         <ImageBackground source={currentTheme.backgroundImage} style={styles.background}>
             <Stack.Screen options={{ headerShown: false }} />
             
-            {/* --- TOP BAR --- */}
             <View style={styles.headerWrapper}>
                 <SafeAreaView edges={['top']}>
                     <View style={styles.topBar}>
@@ -100,13 +96,11 @@ export default function HandFanChallengeScreen() {
             <SafeAreaView style={styles.safeArea} edges={['left', 'right', 'bottom']}>
                 <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.mainScroll}>
                     
-                    {/* Title Section (Dynamic text colors applied) */}
                     <View style={styles.titleSection}>
                         <Text style={[styles.labelItalic, { color: currentTheme.textColor }]}>Activity:</Text>
                         <Text style={[styles.activityName, { color: currentTheme.textColor }]}>{activity?.activityName || "Hand Fan Challenge"}</Text>
                     </View>
 
-                    {/* Updated Curriculum Section */}
                     <TouchableOpacity onPress={toggleCurriculum} style={[styles.curriculumBtn, showCurriculum && styles.curriculumExpanded]}>
                         <View style={styles.curriculumHeader}>
                             <Ionicons name="link-outline" size={18} color="#000" />
@@ -120,7 +114,6 @@ export default function HandFanChallengeScreen() {
                         )}
                     </TouchableOpacity>
 
-                    {/* Dynamic section heading color applied */}
                     <Text style={[styles.sectionHeadingUnderlined, { color: currentTheme.textColor }]}>Activity Requirements</Text>
 
                     <View style={styles.overviewBox}>
@@ -133,7 +126,6 @@ export default function HandFanChallengeScreen() {
                         </View>
                     </View>
 
-                    {/* --- WRITE-UP GUIDE SECTION --- */}
                     <View style={styles.notebookContainer}>
                         <View style={styles.notebookHeader}>
                             <Text style={styles.notebookTitle}>Write-up (on paper):</Text>
@@ -155,9 +147,7 @@ export default function HandFanChallengeScreen() {
                             </Text>
                         </View>
 
-                        {/* RECREATED DATA TABLE VISUALIZATION */}
                         <View style={styles.tableWrapper}>
-                            {/* Table Header Row */}
                             <View style={styles.tableRow}>
                                 <View style={[styles.tableCell, styles.headerCell, { flex: 1.3 }]} />
                                 <View style={[styles.tableCell, styles.headerCell, { flex: 0.9 }]}>
@@ -171,7 +161,6 @@ export default function HandFanChallengeScreen() {
                                 </View>
                             </View>
 
-                            {/* Design 1 Row */}
                             <View style={styles.tableRow}>
                                 <View style={[styles.tableCell, { flex: 1.3 }]}>
                                     <Text style={styles.rowLabel}>Design 1</Text>
@@ -184,7 +173,6 @@ export default function HandFanChallengeScreen() {
                                 <View style={[styles.tableCell, { flex: 1.1 }]} />
                             </View>
 
-                            {/* Design 2 Row */}
                             <View style={styles.tableRow}>
                                 <View style={[styles.tableCell, { flex: 1.3 }]}>
                                     <Text style={styles.rowLabel}>Design 2</Text>
@@ -195,7 +183,6 @@ export default function HandFanChallengeScreen() {
                                 <View style={[styles.tableCell, { flex: 1.1 }]} />
                             </View>
 
-                            {/* Design 3 Row */}
                             <View style={[styles.tableRow, { borderBottomWidth: 0 }]}>
                                 <View style={[styles.tableCell, { flex: 1.3 }]}>
                                     <Text style={styles.rowLabel}>Design 3</Text>
@@ -207,7 +194,6 @@ export default function HandFanChallengeScreen() {
                         </View>
                     </View>
 
-                    {/* Updated route targets fan challenge setup */}
                     <TouchableOpacity 
                         style={styles.startChallengeBtn}
                         onPress={() => router.push('/fan_ready')}
@@ -236,6 +222,7 @@ export default function HandFanChallengeScreen() {
     );
 }
 
+// ─── Styles ───────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
     background: { flex: 1 },
     safeArea: { flex: 1 },

@@ -5,6 +5,21 @@ import {
 } from '@expo-google-fonts/balsamiq-sans';
 import { Ionicons } from '@expo/vector-icons';
 import { Stack, useRouter } from 'expo-router';
+import { Accelerometer } from 'expo-sensors';
+import * as Speech from 'expo-speech';
+import { getAuth } from 'firebase/auth';
+import {
+    addDoc,
+    collection,
+    doc,
+    getDoc,
+    getDocs,
+    limit,
+    orderBy,
+    query,
+    Timestamp,
+    where
+} from 'firebase/firestore';
 import React, { useEffect, useRef, useState } from 'react';
 import {
     ActivityIndicator,
@@ -21,31 +36,8 @@ import {
     View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-
-// --- EXPONENT SENSORS & SPEECH IMPORT ---
-import { Accelerometer } from 'expo-sensors';
-import * as Speech from 'expo-speech';
-
-// --- FIREBASE IMPORTS ---
-import { getAuth } from 'firebase/auth';
-import {
-    addDoc,
-    collection,
-    doc,
-    getDoc,
-    getDocs,
-    limit,
-    orderBy,
-    query,
-    Timestamp,
-    where
-} from 'firebase/firestore';
+import { breathingOps } from '../database/db';
 import { db_cloud } from '../services/firebase_config';
-
-// --- LOCAL DATABASE UTILITIES IMPORT ---
-import { breathingOps } from '../database/db'; // Added to track raw biomechanical telemetry inputs locally
-
-// --- THEME IMPORTS ---
 import { themes } from '../theme/theme';
 import { useTheme } from '../theme/theme_context';
 
@@ -54,19 +46,19 @@ const ACTIVITY_ID = "U2gkCfB3uS6Z8jjmo3Kp";
 const RECORDING_DURATION = 15; 
 const MIN_BREATH_INTERVAL = 1200; 
 
+// allow layout animations on android
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
     UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
+// ─── Per-screen content ───────────────────────────────────────────────────────
 export default function BreathingActivityScreen() {
     const router = useRouter();
     const [fontsLoaded] = useFonts({ BalsamiqSans_400Regular, BalsamiqSans_700Bold });
 
-    // --- CONSUME GLOBAL THEME CONTEXT ---
     const { isDarkMode } = useTheme();
     const currentTheme = isDarkMode ? themes.dark : themes.light;
 
-    // --- SYSTEMS & TEAM STATES ---
     const [currentMember, setCurrentMember] = useState(1);
     const [totalMembers, setTotalMembers] = useState(0);
     const [teamId, setTeamId] = useState<string | null>(null);
@@ -74,17 +66,14 @@ export default function BreathingActivityScreen() {
     const [loading, setLoading] = useState(true);
     const [isFinishing, setIsFinishing] = useState(false);
 
-    // --- ACTIVITY FLOW STATES ---
     const [phase, setPhase] = useState(1); 
     const [gameState, setGameState] = useState<'idle' | 'countdown' | 'recording' | 'result'>('idle');
     const [countdown, setCountdown] = useState(3);
     const [timer, setTimer] = useState(RECORDING_DURATION);
     
-    // --- RESPIRATORY MOTION SENSOR STATES ---
     const [peaks, setPeaks] = useState(0);
     const [calculatedRPM, setCalculatedRPM] = useState(0);
 
-    // --- UI NOTIFICATION & MODAL STATES ---
     const [toastMessage, setToastMessage] = useState('');
     const toastOpacity = useRef(new Animated.Value(0)).current;
     
@@ -95,7 +84,6 @@ export default function BreathingActivityScreen() {
         type: 'info' 
     });
 
-    // Timers & Sensor Tracking References
     const countdownIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const recordingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const subscription = useRef<any>(null);
@@ -103,7 +91,6 @@ export default function BreathingActivityScreen() {
     const isHeadingUpRef = useRef<boolean>(true);
     const lastPeakTimeRef = useRef<number>(0); 
 
-    // --- IN-APP TOAST NOTIFICATION HELPER ---
     const showToast = (message: string) => {
         setToastMessage(message);
         Animated.sequence([
@@ -113,7 +100,6 @@ export default function BreathingActivityScreen() {
         ]).start(() => setToastMessage(''));
     };
 
-    // --- 1. ACCELEROMETER ENGINE ---
     useEffect(() => {
         if (gameState !== 'recording') {
             if (subscription.current) {
@@ -128,6 +114,7 @@ export default function BreathingActivityScreen() {
         subscription.current = Accelerometer.addListener(data => {
             const currentZ = data.z;
 
+            // cancel run if device tilts or drops mid-test
             if (Math.abs(data.x) > 0.7 || Math.abs(data.y) > 0.7) {
                 if (recordingIntervalRef.current) clearInterval(recordingIntervalRef.current);
                 setGameState('idle');
@@ -142,7 +129,7 @@ export default function BreathingActivityScreen() {
             }
 
             const deltaZ = currentZ - lastZValueRef.current;
-            const thresholdNoise = 0.015; 
+            const thresholdNoise = 0.015; // filter out minor body tremors
 
             if (Math.abs(deltaZ) > thresholdNoise) {
                 if (deltaZ > 0 && !isHeadingUpRef.current) {
@@ -151,6 +138,7 @@ export default function BreathingActivityScreen() {
                     isHeadingUpRef.current = false;
                     
                     const now = Date.now();
+                    // enforce debounce window to avoid false double peaks
                     if (now - lastPeakTimeRef.current > MIN_BREATH_INTERVAL) {
                         setPeaks(prev => prev + 1);
                         lastPeakTimeRef.current = now;
@@ -165,7 +153,6 @@ export default function BreathingActivityScreen() {
         };
     }, [gameState]);
 
-    // --- 2. FETCH TEAM AND CORE SELECTION TARGETS ---
     useEffect(() => {
         const fetchData = async () => {
             try {
@@ -181,6 +168,7 @@ export default function BreathingActivityScreen() {
                         const memberSnap = await getDocs(qMembers);
                         setTotalMembers(memberSnap.size || 1);
 
+                        // pull context from most recent active group session
                         const qAttempt = query(
                             collection(db_cloud, "FC_Attempt"),
                             where("TeamID", "==", tId),
@@ -203,7 +191,6 @@ export default function BreathingActivityScreen() {
         fetchData();
     }, []);
 
-    // --- 3. TIMED RECORDING SEQUENCER ---
     const startBreathingTest = () => {
         setGameState('countdown');
         setCountdown(3);
@@ -252,8 +239,8 @@ export default function BreathingActivityScreen() {
             const finalRPM = currentPeaks * (60 / RECORDING_DURATION);
             setCalculatedRPM(finalRPM);
 
-            // --- INJECT LOCAL SQLITE TELEMETRY RECORDER WRITER ---
             try {
+                // save breathing cycles to local sqlite fallback
                 breathingOps.insertTrial({
                     attempt_id: lastAttemptId || "UNKNOWN",
                     member_number: currentMember,
@@ -266,6 +253,7 @@ export default function BreathingActivityScreen() {
                 console.error("Local database respiratory wave entry failure:", error);
             }
 
+            // flag out outlier values from cheat shakes or manual drops
             if (finalRPM > 65 || finalRPM < 4) {
                 setAlertModal({
                     visible: true,
@@ -281,7 +269,6 @@ export default function BreathingActivityScreen() {
         });
     };
 
-    // --- 4. DATA WRITER TO ROOT FIREBASE REPOSITORY ---
     const handleFinishChallenge = async () => {
         if (isFinishing) return;
         setIsFinishing(true);
@@ -304,7 +291,7 @@ export default function BreathingActivityScreen() {
                     params: {
                         activityId: ACTIVITY_ID,
                         activityTitle: "Breathing Pace Trainer",
-                        attemptId: lastAttemptId || "UNKNOWN" // Appended to support localized chart fetches
+                        attemptId: lastAttemptId || "UNKNOWN" 
                     }
                 });
             }, 1000);
@@ -345,7 +332,6 @@ export default function BreathingActivityScreen() {
     const progressPercent = (currentStep / (totalMembers * totalSteps)) * 100;
 
     if (!fontsLoaded || loading) {
-        /* Adaptive background color layout for activity loader instance */
         return (
             <View style={[styles.loader, { backgroundColor: isDarkMode ? '#141414' : '#F3F0E9' }]}>
                 <ActivityIndicator size="large" color="#00E5FF" />
@@ -354,11 +340,9 @@ export default function BreathingActivityScreen() {
     }
 
     return (
-        /* Dynamic Background Image Switch config alignment */
         <ImageBackground source={currentTheme.backgroundImage} style={styles.background}>
             <Stack.Screen options={{ headerShown: false }} />
             
-            {/* --- IN-APP TOAST NOTIFICATION BADGE --- */}
             {toastMessage ? (
                 <Animated.View style={[styles.toastContainer, { opacity: toastOpacity }]}>
                     <Ionicons name="checkmark-circle" size={20} color="#00E5FF" />
@@ -366,7 +350,6 @@ export default function BreathingActivityScreen() {
                 </Animated.View>
             ) : null}
 
-            {/* --- CLEAR ANNOUNCEMENT POP-UP MODAL --- */}
             <Modal transparent visible={alertModal.visible} animationType="fade">
                 <View style={styles.modalOverlay}>
                     <View style={styles.modalBox}>
@@ -404,7 +387,6 @@ export default function BreathingActivityScreen() {
             <SafeAreaView style={styles.safeArea} edges={['left', 'right']}>
                 <View style={styles.content}>
                     
-                    {/* Title Section (Dynamic text color applied) */}
                     <View style={styles.titleSection}>
                         <Text style={[styles.recordingTag, { color: currentTheme.textColor }]}>Live Recording</Text>
                         <Text style={[styles.activityName, { color: currentTheme.textColor }]}>Breathing Pace Trainer</Text>
@@ -466,7 +448,6 @@ export default function BreathingActivityScreen() {
                         )}
                     </View>
 
-                    {/* Status Tracker Row (Dynamic text color applied) */}
                     <View style={styles.statusRow}>
                         <View style={styles.liveMarkerDot} />
                         <Text style={[styles.statusText, { color: currentTheme.textColor }]}>
@@ -491,6 +472,7 @@ export default function BreathingActivityScreen() {
     );
 }
 
+// ─── Styles ───────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
     background: { flex: 1 },
     safeArea: { flex: 1 },

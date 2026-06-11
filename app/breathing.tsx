@@ -5,6 +5,7 @@ import {
 } from '@expo-google-fonts/balsamiq-sans';
 import { Ionicons } from '@expo/vector-icons';
 import { Stack, useRouter } from 'expo-router';
+import { doc, getDoc } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
 import {
     ActivityIndicator,
@@ -21,26 +22,22 @@ import {
     View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-
-// --- FIREBASE IMPORTS ---
-import { doc, getDoc } from 'firebase/firestore';
 import { db_cloud } from '../services/firebase_config';
-
-// --- THEME IMPORTS ---
 import { themes } from '../theme/theme';
 import { useTheme } from '../theme/theme_context';
 
 const { width } = Dimensions.get('window');
 
+// allow layout animations on android
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
     UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
+// ─── Per-screen content ───────────────────────────────────────────────────────
 export default function BreathingTrainerScreen() {
     const router = useRouter();
     const [fontsLoaded] = useFonts({ BalsamiqSans_400Regular, BalsamiqSans_700Bold });
 
-    // --- CONSUME GLOBAL THEME CONTEXT ---
     const { isDarkMode } = useTheme();
     const currentTheme = isDarkMode ? themes.dark : themes.light;
 
@@ -51,6 +48,7 @@ export default function BreathingTrainerScreen() {
     useEffect(() => {
         const fetchActivity = async () => {
             try {
+                // hardcoded doc id for breathing pacing activity
                 const actRef = doc(db_cloud, "MS_Activity", "U2gkCfB3uS6Z8jjmo3Kp");
                 const actSnap = await getDoc(actRef);
                 if (actSnap.exists()) setActivity(actSnap.data());
@@ -64,12 +62,13 @@ export default function BreathingTrainerScreen() {
     }, []);
 
     const toggleCurriculum = () => {
+        // animate height layout updates smoothly
         LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
         setShowCurriculum(!showCurriculum);
     };
 
     if (!fontsLoaded || loading) {
-        /* Adaptive background color container fallback during pipeline loader instances */
+        // fallback loader to avoid white screen flash
         return (
             <View style={[styles.loader, { backgroundColor: isDarkMode ? '#141414' : '#F3F0E9' }]}>
                 <ActivityIndicator size="large" color="#00E5FF" />
@@ -78,11 +77,9 @@ export default function BreathingTrainerScreen() {
     }
 
     return (
-        /* Dynamic Background Image Swap */
         <ImageBackground source={currentTheme.backgroundImage} style={styles.background}>
             <Stack.Screen options={{ headerShown: false }} />
             
-            {/* --- TOP BAR --- */}
             <View style={styles.headerWrapper}>
                 <SafeAreaView edges={['top']}>
                     <View style={styles.topBar}>
@@ -99,13 +96,11 @@ export default function BreathingTrainerScreen() {
             <SafeAreaView style={styles.safeArea} edges={['left', 'right', 'bottom']}>
                 <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.mainScroll}>
                     
-                    {/* Title Section (Dynamic text color applied) */}
                     <View style={styles.titleSection}>
                         <Text style={[styles.labelItalic, { color: currentTheme.textColor }]}>Activity:</Text>
                         <Text style={[styles.activityName, { color: currentTheme.textColor }]}>{activity?.activityName || "Breathing Pace Trainer"}</Text>
                     </View>
 
-                    {/* --- CURRICULUM LINKS SECTION --- */}
                     <TouchableOpacity onPress={toggleCurriculum} style={[styles.curriculumBtn, showCurriculum && styles.curriculumExpanded]}>
                         <View style={styles.curriculumHeader}>
                             <Ionicons name="link-outline" size={18} color="#000" />
@@ -120,10 +115,8 @@ export default function BreathingTrainerScreen() {
                         )}
                     </TouchableOpacity>
 
-                    {/* Dynamic section header color applied */}
                     <Text style={[styles.sectionHeadingUnderlined, { color: currentTheme.textColor }]}>Activity Requirements</Text>
 
-                    {/* --- OVERVIEW BOX --- */}
                     <View style={styles.overviewBox}>
                         <Image source={require('../assets/images/breathing_snippet.png')} style={styles.breathingIcon} />
                         <View style={styles.overviewTextContainer}>
@@ -134,7 +127,6 @@ export default function BreathingTrainerScreen() {
                         </View>
                     </View>
 
-                    {/* --- NOTEBOOK CONTAINER --- */}
                     <View style={styles.notebookContainer}>
                         <View style={styles.notebookHeader}>
                             <Text style={styles.notebookTitle}>Write-up (on paper):</Text>
@@ -147,9 +139,7 @@ export default function BreathingTrainerScreen() {
                             <Text style={styles.bulletPoint}>• Any surprises?</Text>
                         </View>
 
-                        {/* DATA TABLE VISUALIZATION */}
                         <View style={styles.tableWrapper}>
-                            {/* Table Header Row */}
                             <View style={styles.tableRow}>
                                 <View style={[styles.tableCell, styles.headerCell, { flex: 1.1 }]} />
                                 <View style={[styles.tableCell, styles.headerCell, { flex: 1.2 }]}>
@@ -163,7 +153,6 @@ export default function BreathingTrainerScreen() {
                                 </View>
                             </View>
 
-                            {/* Row 1: Breathing at Rest */}
                             <View style={styles.tableRow}>
                                 <View style={[styles.tableCell, { flex: 1.1 }]}>
                                     <Text style={styles.rowLabel}>Breathing at Rest</Text>
@@ -175,7 +164,6 @@ export default function BreathingTrainerScreen() {
                                 <View style={[styles.tableCell, { flex: 1.1 }]} />
                             </View>
 
-                            {/* Row 2: After Exercise 1 */}
                             <View style={styles.tableRow}>
                                 <View style={[styles.tableCell, { flex: 1.1 }]}>
                                     <Text style={styles.rowLabel}>After Exercise 1</Text>
@@ -185,7 +173,6 @@ export default function BreathingTrainerScreen() {
                                 <View style={[styles.tableCell, { flex: 1.1 }]} />
                             </View>
 
-                            {/* Row 3: After Exercise 2 */}
                             <View style={[styles.tableRow, { borderBottomWidth: 0 }]}>
                                 <View style={[styles.tableCell, { flex: 1.1 }]}>
                                     <Text style={styles.rowLabel}>After Exercise 2</Text>
@@ -197,7 +184,6 @@ export default function BreathingTrainerScreen() {
                         </View>
                     </View>
 
-                    {/* REDIRECT TO BREATHING READY SCREEN */}
                     <TouchableOpacity 
                         style={styles.startChallengeBtn}
                         onPress={() => router.push('/breathing_ready')}
@@ -207,7 +193,6 @@ export default function BreathingTrainerScreen() {
 
                 </ScrollView>
 
-                {/* BOTTOM TAB NAVIGATION */}
                 <View style={styles.bottomTabs}>
                     <TouchableOpacity style={styles.tabItem} onPress={() => router.push('/home')}>
                         <Image source={require('../assets/images/Home.png')} style={styles.tabIcon} />
@@ -227,6 +212,7 @@ export default function BreathingTrainerScreen() {
     );
 }
 
+// ─── Styles ───────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
     background: { flex: 1 },
     safeArea: { flex: 1 },

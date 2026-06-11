@@ -7,6 +7,18 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import { Stack, useRouter } from 'expo-router';
 import { Accelerometer } from 'expo-sensors';
+import { getAuth } from 'firebase/auth';
+import {
+    addDoc,
+    collection,
+    doc,
+    GeoPoint,
+    getDoc,
+    getDocs,
+    query,
+    Timestamp,
+    where
+} from 'firebase/firestore';
 import React, { useEffect, useRef, useState } from 'react';
 import {
     ActivityIndicator,
@@ -23,23 +35,7 @@ import {
     View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-
-// --- FIREBASE IMPORTS ---
-import { getAuth } from 'firebase/auth';
-import {
-    addDoc,
-    collection,
-    doc,
-    GeoPoint,
-    getDoc,
-    getDocs,
-    query,
-    Timestamp,
-    where
-} from 'firebase/firestore';
 import { db_cloud } from '../services/firebase_config';
-
-// --- THEME IMPORTS ---
 import { themes } from '../theme/theme';
 import { useTheme } from '../theme/theme_context';
 
@@ -51,15 +47,14 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
     UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
+// ─── Per-screen content ───────────────────────────────────────────────────────
 export default function ReactionReadyScreen() {
     const router = useRouter();
     const [fontsLoaded] = useFonts({ BalsamiqSans_400Regular, BalsamiqSans_700Bold });
 
-    // --- CONSUME GLOBAL THEME CONTEXT ---
     const { isDarkMode } = useTheme();
     const currentTheme = isDarkMode ? themes.dark : themes.light;
 
-    // --- STATES ---
     const [activity, setActivity] = useState<any>(null);
     const [loading, setLoading] = useState(true);
     const [isStarting, setIsStarting] = useState(false);
@@ -77,7 +72,6 @@ export default function ReactionReadyScreen() {
     const [tilt, setTilt] = useState({ x: 0, y: 0 });
     const subscription = useRef<any>(null);
 
-    // --- 1. INITIAL DATA FETCH ---
     useEffect(() => {
         const fetchData = async () => {
             try {
@@ -97,6 +91,7 @@ export default function ReactionReadyScreen() {
                         setTeamId(tId);
 
                         if (tId) {
+                            // cross-reference team members query
                             const studentsQuery = query(
                                 collection(db_cloud, "MS_Student"),
                                 where("teamID", "==", tId)
@@ -116,6 +111,7 @@ export default function ReactionReadyScreen() {
         const subscribeTilt = () => {
             Accelerometer.setUpdateInterval(100);
             subscription.current = Accelerometer.addListener(data => {
+                // map raw vector units to flat degree parameters
                 setTilt({
                     x: Math.round(data.x * 90 * 10) / 10,
                     y: Math.round(data.y * 90 * 10) / 10,
@@ -131,7 +127,6 @@ export default function ReactionReadyScreen() {
         };
     }, []);
 
-    // --- 2. START CHALLENGE ---
     const handleStartChallenge = async () => {
         if (!teamId) return Alert.alert("Error", "No Team Session found.");
         
@@ -147,6 +142,7 @@ export default function ReactionReadyScreen() {
             const location = await Location.getCurrentPositionAsync({});
             const { latitude, longitude } = location.coords;
 
+            // hardcoded regional school geofence check
             const isWithinZone = 
                 latitude >= -6.23 && latitude <= -6.19 && 
                 longitude >= 106.79 && longitude <= 106.82;
@@ -164,6 +160,7 @@ export default function ReactionReadyScreen() {
                 where("ActivityID", "==", ACTIVITY_ID)
             );
             
+            // fetch counts to dynamically increment next trial number
             const querySnapshot = await getDocs(q);
             const nextTrialNumber = querySnapshot.size + 1;
 
@@ -186,7 +183,6 @@ export default function ReactionReadyScreen() {
         }
     };
 
-    // --- 3. UI HELPERS ---
     const handleStopwatchToggle = () => {
         if (isRunning) {
             if (intervalRef.current) clearInterval(intervalRef.current);
@@ -211,14 +207,16 @@ export default function ReactionReadyScreen() {
     const allRequirementsMet = (elapsedTime > 0) && isFlat && isUserPrepared && isSafeSpace;
     const completedTasks = [elapsedTime > 0, isFlat, isUserPrepared, isSafeSpace].filter(Boolean).length;
     
-    // FIXED: Renamed safely to avoid global browser DOM namespace interface crashes
+    // avoid naming conflict with browser windows progressevent types
     const readinessProgressPercent = (completedTasks / 4) * 100;
 
     useEffect(() => {
+        // fire spring animations natively on update shifts
         LayoutAnimation.configureNext(LayoutAnimation.Presets.spring);
     }, [completedTasks]);
 
     if (!fontsLoaded || loading) {
+        // structural loader shell container to prevent early white flash updates
         return (
             <View style={[styles.loader, { backgroundColor: isDarkMode ? '#141414' : '#F3F0E9' }]}>
                 <ActivityIndicator size="large" color="#00E5FF" />
@@ -227,7 +225,6 @@ export default function ReactionReadyScreen() {
     }
 
     return (
-        /* Dynamic Theme Background Image Swap */
         <ImageBackground source={currentTheme.backgroundImage} style={styles.background}>
             <Stack.Screen options={{ headerShown: false }} />
             
@@ -257,13 +254,11 @@ export default function ReactionReadyScreen() {
             <SafeAreaView style={styles.safeArea} edges={['left', 'right', 'bottom']}>
                 <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.mainScroll}>
                     
-                    {/* Title block parameters updated with theme configs */}
                     <View style={styles.titleSection}>
                         <Text style={[styles.phaseTag, { color: currentTheme.textColor }]}>Readiness Phase:</Text>
                         <Text style={[styles.activityName, { color: currentTheme.textColor }]}>{activity?.activityName || "Reaction Board Challenge"}</Text>
                     </View>
 
-                    {/* Overview info sheet container remains clean default styling structure */}
                     <View style={styles.overviewBox}>
                         <View style={styles.overviewTextContainer}>
                             <Text style={styles.overviewText}>
@@ -281,7 +276,6 @@ export default function ReactionReadyScreen() {
 
                     <Text style={[styles.sectionHeadingUnderlined, { color: currentTheme.textColor }]}>Team Readiness Checklist:</Text>
 
-                    {/* Check 1: Sensors */}
                     <View style={styles.checkItem}>
                         <View style={styles.checkHeader}>
                             <Ionicons 
@@ -298,7 +292,6 @@ export default function ReactionReadyScreen() {
                         </View>
                     </View>
 
-                    {/* Check 2: Surface Flatness */}
                     <View style={styles.checkItem}>
                         <View style={styles.checkHeader}>
                             <Ionicons 
@@ -322,7 +315,6 @@ export default function ReactionReadyScreen() {
                         </View>
                     </View>
 
-                    {/* Check 3: User Prepared */}
                     <TouchableOpacity style={styles.checkItem} onPress={() => setIsUserPrepared(!isUserPrepared)}>
                         <View style={styles.checkHeader}>
                             <Ionicons name={isUserPrepared ? "checkbox" : "square-outline"} size={24} color={isUserPrepared ? "#00E5FF" : currentTheme.textColor} />
@@ -330,7 +322,6 @@ export default function ReactionReadyScreen() {
                         </View>
                     </TouchableOpacity>
 
-                    {/* Check 4: Safe and Clear Space */}
                     <TouchableOpacity style={styles.checkItem} onPress={() => setIsSafeSpace(!isSafeSpace)}>
                         <View style={styles.checkHeader}>
                             <Ionicons name={isSafeSpace ? "checkbox" : "square-outline"} size={24} color={isSafeSpace ? "#00E5FF" : currentTheme.textColor} />
@@ -361,6 +352,7 @@ export default function ReactionReadyScreen() {
     );
 }
 
+// ─── Styles ───────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
     background: { flex: 1 },
     safeArea: { flex: 1 },

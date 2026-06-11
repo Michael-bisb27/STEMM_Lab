@@ -5,7 +5,21 @@ import {
 } from '@expo-google-fonts/balsamiq-sans';
 import { Ionicons } from '@expo/vector-icons';
 import { Stack, useRouter } from 'expo-router';
+import { Accelerometer } from 'expo-sensors';
 import * as Speech from 'expo-speech';
+import { getAuth } from 'firebase/auth';
+import {
+    addDoc,
+    collection,
+    doc,
+    getDoc,
+    getDocs,
+    limit,
+    orderBy,
+    query,
+    Timestamp,
+    where
+} from 'firebase/firestore';
 import React, { useEffect, useRef, useState } from 'react';
 import {
     ActivityIndicator,
@@ -23,30 +37,8 @@ import {
     View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-
-// --- EXPONENT SENSORS IMPORT ---
-import { Accelerometer } from 'expo-sensors';
-
-// --- FIREBASE IMPORTS ---
-import { getAuth } from 'firebase/auth';
-import {
-    addDoc,
-    collection,
-    doc,
-    getDoc,
-    getDocs,
-    limit,
-    orderBy,
-    query,
-    Timestamp,
-    where
-} from 'firebase/firestore';
+import { humanOps } from '../database/db';
 import { db_cloud } from '../services/firebase_config';
-
-// --- LOCAL DATABASE UTILITIES IMPORT ---
-import { humanOps } from '../database/db'; // Added to handle isolated high-velocity telemetry logs
-
-// --- THEME IMPORTS ---
 import { themes } from '../theme/theme';
 import { useTheme } from '../theme/theme_context';
 
@@ -60,15 +52,14 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
     UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
+// ─── Per-screen content ───────────────────────────────────────────────────────
 export default function HumanActivityScreen() {
     const router = useRouter();
     const [fontsLoaded] = useFonts({ BalsamiqSans_400Regular, BalsamiqSans_700Bold });
 
-    // --- CONSUME GLOBAL THEME CONTEXT ---
     const { isDarkMode } = useTheme();
     const currentTheme = isDarkMode ? themes.dark : themes.light;
 
-    // --- STATES ---
     const [currentMember, setCurrentMember] = useState(1);
     const [totalMembers, setTotalMembers] = useState(0);
     const [teamId, setTeamId] = useState<string | null>(null);
@@ -80,11 +71,9 @@ export default function HumanActivityScreen() {
     const [loading, setLoading] = useState(true);
     const [isFinishing, setIsFinishing] = useState(false);
 
-    // Live Metrics Tracking
     const [elapsedTime, setElapsedTime] = useState(0);
     const [maxVibration, setMaxVibration] = useState(0);
 
-    // UI NOTIFICATION & MODAL STATES
     const [toastMessage, setToastMessage] = useState('');
     const toastOpacity = useRef(new Animated.Value(0)).current;
     
@@ -100,7 +89,6 @@ export default function HumanActivityScreen() {
     const currentMaxVib = useRef<number>(0);
     const subscription = useRef<any>(null);
 
-    // --- IN-APP TOAST NOTIFICATION HELPER ---
     const showToast = (message: string) => {
         setToastMessage(message);
         Animated.sequence([
@@ -110,7 +98,6 @@ export default function HumanActivityScreen() {
         ]).start(() => setToastMessage(''));
     };
 
-    // --- 1. REAL-TIME ACCELEROMETER SUBSCRIPTION ---
     useEffect(() => {
         if (gameState !== 'recording') {
             if (subscription.current) {
@@ -120,6 +107,7 @@ export default function HumanActivityScreen() {
             return;
         }
 
+        // speed up sensor polling interval to track fast muscle shifts
         Accelerometer.setUpdateInterval(80); 
         
         subscription.current = Accelerometer.addListener(data => {
@@ -131,6 +119,7 @@ export default function HumanActivityScreen() {
                 setMaxVibration(deviation);
             }
 
+            // auto fail structural calculation if jerky movements break shake ceiling
             if (deviation > SHAKE_LIMIT) {
                 stopRecording(true);
             }
@@ -141,7 +130,6 @@ export default function HumanActivityScreen() {
         };
     }, [gameState]);
 
-    // --- 2. FETCH INITIALIZATION METADATA ---
     useEffect(() => {
         const fetchData = async () => {
             try {
@@ -157,6 +145,7 @@ export default function HumanActivityScreen() {
                         const memberSnap = await getDocs(qMembers);
                         setTotalMembers(memberSnap.size || 1);
 
+                        // look up most recent configuration attempt logging ID
                         const qAttempt = query(
                             collection(db_cloud, "FC_Attempt"),
                             where("TeamID", "==", tId),
@@ -179,7 +168,6 @@ export default function HumanActivityScreen() {
         fetchData();
     }, []);
 
-    // --- 3. RECORDING CORE ENGINE & CAUTIONS ---
     const startRecording = () => {
         currentMaxVib.current = 0;
         setMaxVibration(0);
@@ -230,8 +218,8 @@ export default function HumanActivityScreen() {
         } else {
             showToast("Movement Track Recorded!");
 
-            // --- INJECT LOCAL SQLITE TELEMETRY SNAPSHOT WRITER ---
             try {
+                // commit raw time-series metrics package to device storage fallbacks
                 humanOps.insertTrial({
                     attempt_id: lastAttemptId || "UNKNOWN",
                     member_number: currentMember,
@@ -247,7 +235,6 @@ export default function HumanActivityScreen() {
         }
     };
 
-    // --- 4. DATA LOG SUBMISSION & FLOW ROUTING ---
     const handleFinishChallenge = async () => {
         if (isFinishing) return;
         setIsFinishing(true);
@@ -270,7 +257,7 @@ export default function HumanActivityScreen() {
                     params: {
                         activityId: ACTIVITY_ID,
                         activityTitle: "Human Performance Lab",
-                        attemptId: lastAttemptId || "UNKNOWN" // Passed along to allow direct chart lookup down the pipeline
+                        attemptId: lastAttemptId || "UNKNOWN" 
                     }
                 });
             }, 1200);
@@ -320,7 +307,6 @@ export default function HumanActivityScreen() {
     };
 
     if (!fontsLoaded || loading) {
-        /* Adaptive theme color fallback wrapper for loading state instances */
         return (
             <View style={[styles.loader, { backgroundColor: isDarkMode ? '#141414' : '#F3F0E9' }]}>
                 <ActivityIndicator size="large" color="#00E5FF" />
@@ -329,11 +315,9 @@ export default function HumanActivityScreen() {
     }
 
     return (
-        /* Dynamic Theme Background Image Swap */
         <ImageBackground source={currentTheme.backgroundImage} style={styles.background}>
             <Stack.Screen options={{ headerShown: false }} />
             
-            {/* --- IN-APP TOAST NOTIFICATION BADGE --- */}
             {toastMessage ? (
                 <Animated.View style={[styles.toastContainer, { opacity: toastOpacity }]}>
                     <Ionicons name="checkmark-circle" size={20} color="#00E5FF" />
@@ -341,7 +325,6 @@ export default function HumanActivityScreen() {
                 </Animated.View>
             ) : null}
 
-            {/* --- CLEAR ANNOUNCEMENT POP-UP MODAL --- */}
             <Modal transparent visible={alertModal.visible} animationType="fade">
                 <View style={styles.modalOverlay}>
                     <View style={styles.modalBox}>
@@ -379,20 +362,17 @@ export default function HumanActivityScreen() {
             <SafeAreaView style={styles.safeArea} edges={['left', 'right', 'bottom']}>
                 <View style={styles.content}>
                     
-                    {/* Title Section (Dynamic text colors applied) */}
                     <View style={styles.titleSection}>
                         <Text style={[styles.recordingTag, { color: currentTheme.textColor }]}>Live Recording</Text>
                         <Text style={[styles.activityName, { color: currentTheme.textColor }]}>Human Performance Lab</Text>
                         <Text style={styles.phaseIndicator}>Movement Layout Variant {movement}</Text>
                     </View>
 
-                    {/* Diagram Display Window remains safe white background container block */}
                     <View style={styles.diagramDisplayWindow}>
                         <Image source={getMovementImage()} style={styles.activeMovementImage} />
                         <Text style={styles.imageCaption}>Execute Specified Track Path Slowly</Text>
                     </View>
 
-                    {/* Metrics container elements tracking (Dynamic typography applied) */}
                     <View style={styles.metricsContainer}>
                         <Text style={[styles.metricLabel, { color: currentTheme.textColor }]}>
                             Duration: <Text style={styles.metricValue}>{(elapsedTime / 1000).toFixed(2)}s</Text>
@@ -419,7 +399,6 @@ export default function HumanActivityScreen() {
                         )}
                     </View>
 
-                    {/* Run Status Identifier (Dynamic text color configured) */}
                     <View style={styles.statusRow}>
                         <View style={styles.redDot} />
                         <Text style={[styles.statusText, { color: currentTheme.textColor }]}>
@@ -458,6 +437,7 @@ export default function HumanActivityScreen() {
     );
 }
 
+// ─── Styles ───────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
     background: { flex: 1 },
     safeArea: { flex: 1 },

@@ -4,7 +4,23 @@ import {
     useFonts,
 } from '@expo-google-fonts/balsamiq-sans';
 import { Ionicons } from '@expo/vector-icons';
+import { Audio } from 'expo-av';
+import * as FileSystem from 'expo-file-system/legacy';
 import { Stack, useRouter } from 'expo-router';
+import { Accelerometer } from 'expo-sensors';
+import { getAuth } from 'firebase/auth';
+import {
+    addDoc,
+    collection,
+    doc,
+    getDoc,
+    getDocs,
+    limit,
+    orderBy,
+    query,
+    Timestamp,
+    where
+} from 'firebase/firestore';
 import React, { useEffect, useRef, useState } from 'react';
 import {
     ActivityIndicator,
@@ -21,30 +37,8 @@ import {
     View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-
-// --- FIREBASE IMPORTS ---
-import { getAuth } from 'firebase/auth';
-import {
-    addDoc,
-    collection,
-    doc,
-    getDoc,
-    getDocs,
-    limit,
-    orderBy,
-    query,
-    Timestamp,
-    where
-} from 'firebase/firestore';
+import { soundOps } from '../database/db';
 import { db_cloud } from '../services/firebase_config';
-
-// --- LOCAL DATABASE UTILITIES IMPORT ---
-import { soundOps } from '../database/db'; // Added to handle high-velocity offline logging
-
-// --- EXPONENT SENSORS IMPORT ---
-import { Accelerometer } from 'expo-sensors';
-
-// --- THEME IMPORTS ---
 import { themes } from '../theme/theme';
 import { useTheme } from '../theme/theme_context';
 
@@ -52,19 +46,17 @@ const { width, height } = Dimensions.get('window');
 const ACTIVITY_ID = "0clUTH6JFi8V2uuexn9k"; 
 const FLATNESS_TOLERANCE = 0.15; 
 
+// allow layout animations on android
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
     UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
+// ─── Per-screen content ───────────────────────────────────────────────────────
 export default function SoundActivityScreen() {
     const router = useRouter();
     const [fontsLoaded] = useFonts({ BalsamiqSans_400Regular, BalsamiqSans_700Bold });
-
-    // --- CONSUME GLOBAL THEME CONTEXT ---
     const { isDarkMode } = useTheme();
     const currentTheme = isDarkMode ? themes.dark : themes.light;
-
-    // --- STATES ---
     const [currentMember, setCurrentMember] = useState(1);
     const [totalMembers, setTotalMembers] = useState(0);
     const [teamId, setTeamId] = useState<string | null>(null);
@@ -76,11 +68,8 @@ export default function SoundActivityScreen() {
     const [peakDb, setPeakDb] = useState(0);
     const [loading, setLoading] = useState(true);
     const [isFinishing, setIsFinishing] = useState(false);
-
-    // Surface verification tracking
     const [isFlat, setIsFlat] = useState(true);
     
-    // UI NOTIFICATION & MODAL STATES
     const [toastMessage, setToastMessage] = useState<string>('');
     const toastOpacity = useRef(new Animated.Value(0)).current;
     
@@ -90,12 +79,15 @@ export default function SoundActivityScreen() {
         message: '',
         type: 'info' 
     });
-
     const samplingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const animationInterval = useRef<ReturnType<typeof setInterval> | null>(null);
     const sensorSubscription = useRef<any>(null);
+    const recordingRef = useRef<Audio.Recording | null>(null);
+    
+    const isStartingRecordingRef = useRef(false);
+    const isCancellingRecordingRef = useRef(false);
+    const isUnloadingRecordingRef = useRef(false); // ← INFALLIBLE HARDWARE MULTI-THREAD LOCK
 
-    // --- IN-APP ACTION TOAST BADGE TRIGGER ---
     const showToast = (msg: string) => {
         setToastMessage(msg);
         Animated.sequence([
@@ -105,16 +97,23 @@ export default function SoundActivityScreen() {
         ]).start(() => setToastMessage(''));
     };
 
-    // --- 1. ACCELEROMETER SUBSCRIPTION ---
     useEffect(() => {
         if (gameState === 'result') {
             if (sensorSubscription.current) {
                 sensorSubscription.current.remove();
                 sensorSubscription.current = null;
             }
+            if (recordingRef.current && !isUnloadingRecordingRef.current) {
+                isUnloadingRecordingRef.current = true;
+                recordingRef.current.stopAndUnloadAsync()
+                    .catch(() => {})
+                    .finally(() => {
+                        recordingRef.current = null;
+                        isUnloadingRecordingRef.current = false;
+                    });
+            }
             return;
         }
-
         Accelerometer.setUpdateInterval(120); 
         
         sensorSubscription.current = Accelerometer.addListener(accelerometerData => {
@@ -122,28 +121,23 @@ export default function SoundActivityScreen() {
                          Math.abs(accelerometerData.y) < FLATNESS_TOLERANCE;
             
             setIsFlat(flat);
-
             if (!flat && gameState === 'recording') {
-                if (samplingTimer.current) clearTimeout(samplingTimer.current);
-                if (animationInterval.current) clearInterval(animationInterval.current);
-                setGameState('idle');
-                setCurrentDb(30);
-                
-                setAlertModal({
-                    visible: true,
-                    title: "Monitoring Aborted",
-                    message: "The device was moved or tilted during active acoustic sampling. Please rest the device completely flat on the target workbench surface to resume.",
-                    type: 'warning'
+                cancelSampling().then(() => {
+                    setAlertModal({
+                        visible: true,
+                        title: "Monitoring Aborted",
+                        message:
+                            "The device was moved or tilted during active acoustic sampling. Please place the device flat and restart the measurement.",
+                        type: 'warning'
+                    });
                 });
             }
         });
-
         return () => {
             if (sensorSubscription.current) sensorSubscription.current.remove();
         };
     }, [gameState]);
 
-    // --- 2. FETCH ACTIVE TRACKING CONTEXTS ---
     useEffect(() => {
         const fetchData = async () => {
             try {
@@ -154,11 +148,10 @@ export default function SoundActivityScreen() {
                     if (studentDoc.exists()) {
                         const tId = studentDoc.data().teamID;
                         setTeamId(tId);
-
                         const qMembers = query(collection(db_cloud, "MS_Student"), where("teamID", "==", tId));
                         const memberSnap = await getDocs(qMembers);
                         setTotalMembers(memberSnap.size || 1);
-
+                        
                         const qAttempt = query(
                             collection(db_cloud, "FC_Attempt"),
                             where("TeamID", "==", tId),
@@ -180,12 +173,16 @@ export default function SoundActivityScreen() {
         };
         fetchData();
     }, []);
+    
+    useEffect(() => {
+        return () => {
+            cancelSampling().catch(() => {});
+        };
+    }, []);
 
-    // --- 3. FINAL EXPERIMENT PERSISTENCE ACTION ---
     const handleFinishChallenge = async () => {
         if (isFinishing) return;
         setIsFinishing(true);
-
         try {
             await addDoc(collection(db_cloud, "FC_Scoring_Result"), {
                 AttemptID: lastAttemptId || "UNKNOWN",
@@ -195,7 +192,6 @@ export default function SoundActivityScreen() {
                 workScore: 0,
                 teacherID: "" 
             });
-
             showToast("Acoustic Profile Synchronized!");
             
             setTimeout(() => {
@@ -204,7 +200,7 @@ export default function SoundActivityScreen() {
                     params: {
                         activityId: ACTIVITY_ID,
                         activityTitle: "Sound Pollution Hunter",
-                        attemptId: lastAttemptId || "UNKNOWN" // Passed along to allow direct lookup on our Scientist Dashboard
+                        attemptId: lastAttemptId || "UNKNOWN" 
                     }
                 });
             }, 1200);
@@ -245,63 +241,187 @@ export default function SoundActivityScreen() {
         }
     };
 
-    // --- 4. SAMPLING WAVE ENGINE SIMULATION ---
-    const startAudioSampling = () => {
-        if (!isFlat) return;
-        setGameState('recording');
+    const cancelSampling = async () => {
+        if (isCancellingRecordingRef.current) return;
+        isCancellingRecordingRef.current = true;
+        try {
+            if (animationInterval.current) {
+                clearInterval(animationInterval.current);
+                animationInterval.current = null;
+            }
+            if (samplingTimer.current) {
+                clearTimeout(samplingTimer.current);
+                samplingTimer.current = null;
+            }
+            if (recordingRef.current && !isUnloadingRecordingRef.current) {
+                isUnloadingRecordingRef.current = true;
+                try {
+                    await recordingRef.current.stopAndUnloadAsync();
+                } catch (err) {}
+
+                try {
+                    const uri = recordingRef.current.getURI();
+                    if (uri) {
+                        await FileSystem.deleteAsync(uri, {
+                            idempotent: true,
+                        });
+                    }
+                } catch (err) {
+                    console.error("FileSystem cleanup error:", err);
+                }
+                recordingRef.current = null;
+                isUnloadingRecordingRef.current = false;
+            }
+        } finally {
+            isCancellingRecordingRef.current = false;
+        }
+        setGameState('idle');
+        setCurrentDb(30);
         setPeakDb(0);
+    };
 
-        let absolutePeak = 30;
+    const startAudioSampling = async () => {
+        if (!isFlat) {
+            setAlertModal({
+                visible: true,
+                title: "Device Not Flat",
+                message: "Calibrating: Place mobile phone flat on target evaluation surface desk to gather telemetry.",
+                type: 'warning'
+            });
+            return;
+        }
+        if (gameState === 'recording') return;
+        if (recordingRef.current) return;
+        if (isStartingRecordingRef.current) return;
+        if (isCancellingRecordingRef.current) return;
+        if (isUnloadingRecordingRef.current) return;
+        isStartingRecordingRef.current = true;
 
-        animationInterval.current = setInterval(() => {
-            let sampleDb = 35 + Math.floor(Math.random() * 20); 
-
-            if (currentAction === 1) {
-                if (Math.random() > 0.6) sampleDb = 78 + Math.floor(Math.random() * 12);
-            } else if (currentAction === 2) {
-                sampleDb = 52 + Math.floor(Math.random() * 16);
-            } else if (currentAction === 3) {
-                if (Math.random() > 0.5) sampleDb = 88 + Math.floor(Math.random() * 15);
-            }
-
-            setCurrentDb(sampleDb);
-            if (sampleDb > absolutePeak) {
-                absolutePeak = sampleDb;
-                setPeakDb(absolutePeak);
-            }
-        }, 100);
-
-        samplingTimer.current = setTimeout(() => {
-            if (animationInterval.current) clearInterval(animationInterval.current);
-            
-            if (absolutePeak <= 35) {
-                setGameState('idle');
-                setCurrentDb(30);
-                setPeakDb(0);
+        try {
+            const { granted } = await Audio.requestPermissionsAsync();
+            if (!granted) {
                 setAlertModal({
                     visible: true,
-                    title: "Acoustic Sample Invalid",
-                    message: "The recorded amplitude showed zero wave variance. Please ensure you execute the active sound action directly adjacent to the workbench surface framework.",
+                    title: "Permission Denied",
+                    message: "Microphone access is required for acoustic sampling.",
                     type: 'warning'
                 });
-            } else {
-                setGameState('result');
-                showToast("Acoustic wave capturing finalized!");
-
-                // --- INJECT LOCAL SQLITE WRITER ACTION ---
-                try {
-                    soundOps.insertTrial({
-                        attempt_id: lastAttemptId || "UNKNOWN",
-                        member_number: currentMember,
-                        action_phase: currentAction,
-                        peak_db: absolutePeak,
-                        recorded_at: Date.now()
-                    });
-                } catch (error) {
-                    console.error("Local SQLite database write exception:", error);
-                }
+                return;
             }
-        }, 4000);
+
+            setGameState('recording');
+            setPeakDb(0);
+            let absolutePeak = 30;
+
+            await Audio.setAudioModeAsync({
+                allowsRecordingIOS: true,
+                playsInSilentModeIOS: true,
+            });
+
+            const recording = new Audio.Recording();
+            recordingRef.current = recording;
+
+            try {
+                await recording.prepareToRecordAsync({
+                    ...Audio.RecordingOptionsPresets.HIGH_QUALITY,
+                    isMeteringEnabled: true,
+                });
+                await recording.startAsync();
+            } catch (initErr) {
+                if (!isUnloadingRecordingRef.current) {
+                    isUnloadingRecordingRef.current = true;
+                    try {
+                        await recording.stopAndUnloadAsync();
+                    } catch (_) {}
+                    isUnloadingRecordingRef.current = false;
+                }
+                recordingRef.current = null;
+                throw initErr; 
+            }
+
+            animationInterval.current = setInterval(async () => {
+                if (!recordingRef.current) return;
+                try {
+                    const status = await recordingRef.current.getStatusAsync();
+                    if (status.isRecording && status.metering !== undefined) {
+                        const sampleDb = Math.round(
+                            Math.max(30, Math.min(120, status.metering + 90))
+                        );
+                        setCurrentDb(sampleDb);
+                        if (sampleDb > absolutePeak) {
+                            absolutePeak = sampleDb;
+                            setPeakDb(absolutePeak);
+                        }
+                    }
+                } catch (err) {
+                    console.error(err);
+                }
+            }, 100);
+
+            samplingTimer.current = setTimeout(async () => {
+                if (isUnloadingRecordingRef.current) return;
+                isUnloadingRecordingRef.current = true;
+                try {
+                    if (animationInterval.current) {
+                        clearInterval(animationInterval.current);
+                        animationInterval.current = null;
+                    }
+
+                    if (recordingRef.current) {
+                        const currentRecording = recordingRef.current;
+                        try {
+                            await currentRecording.stopAndUnloadAsync();
+                            const uri = currentRecording.getURI();
+                            if (uri) {
+                                await FileSystem.deleteAsync(uri, { idempotent: true });
+                            }
+                        } catch (err) {
+                            console.error("Timeout native unload error:", err);
+                        }
+                        recordingRef.current = null;
+                    }
+
+                    if (absolutePeak <= 35) {
+                        setGameState('idle');
+                        setCurrentDb(30);
+                        setPeakDb(0);
+                        setAlertModal({
+                            visible: true,
+                            title: "Acoustic Sample Invalid",
+                            message: "The recorded amplitude showed zero wave variance. Please ensure you execute the active sound action directly adjacent to the workbench surface framework.",
+                            type: 'warning'
+                        });
+                    } else {
+                        setGameState('result');
+                        showToast("Acoustic wave capturing finalized!");
+                        try {
+                            soundOps.insertTrial({
+                                attempt_id: lastAttemptId || "UNKNOWN",
+                                member_number: currentMember,
+                                action_phase: currentAction,
+                                peak_db: absolutePeak,
+                                recorded_at: Date.now()
+                            });
+                        } catch (error) {
+                            console.error("Local SQLite database write exception:", error);
+                        }
+                    }
+                } catch (err) {
+                    console.error("Sampling completion error:", err);
+                    if (animationInterval.current) clearInterval(animationInterval.current);
+                    setGameState('idle');
+                    setCurrentDb(30);
+                    setPeakDb(0);
+                } finally {
+                    isUnloadingRecordingRef.current = false;
+                }
+            }, 4000);
+        } catch (err) {
+            console.error("Audio initialization error:", err);
+            await cancelSampling();
+        } finally {
+            isStartingRecordingRef.current = false;
+        }
     };
 
     const getRiskMitigationTag = (db: number) => {
@@ -322,24 +442,12 @@ export default function SoundActivityScreen() {
 
     const totalSteps = 3; 
     const currentStep = ((currentMember - 1) * totalSteps) + (currentAction - 1);
-    
-    // FIXED: Renamed to avoid TypeScript DOM 'ProgressEvent' collision anomalies
     const sessionProgressPercent = (currentStep / (totalMembers * totalSteps)) * 100;
 
-    if (!fontsLoaded || loading) {
-        return (
-            <View style={[styles.loader, { backgroundColor: isDarkMode ? '#141414' : '#F3F0E9' }]}>
-                <ActivityIndicator size="large" color="#00E5FF" />
-            </View>
-        );
-    }
-
     return (
-        /* Dynamic Theme Background Image Swap */
         <ImageBackground source={currentTheme.backgroundImage} style={styles.background}>
             <Stack.Screen options={{ headerShown: false }} />
             
-            {/* --- IN-APP TOAST ACTION NOTIFICATION BADGE BAR --- */}
             {toastMessage ? (
                 <Animated.View style={[styles.toastContainer, { opacity: toastOpacity }]}>
                     <Ionicons name="volume-high" size={18} color="#00E5FF" />
@@ -347,7 +455,6 @@ export default function SoundActivityScreen() {
                 </Animated.View>
             ) : null}
 
-            {/* --- POP-UP ANNOUNCEMENT MODAL OVERLAY --- */}
             <Modal transparent visible={alertModal.visible} animationType="fade" onRequestClose={() => setAlertModal({ ...alertModal, visible: false })}>
                 <View style={styles.modalOverlay}>
                     <View style={styles.modalBox}>
@@ -385,16 +492,7 @@ export default function SoundActivityScreen() {
 
             <SafeAreaView style={styles.safeArea} edges={['left', 'right']}>
                 <View style={styles.content}>
-                    
-                    {/* --- BACKGROUND ACCELEROMETER STABILITY OVERLAY --- */}
-                    {!isFlat && (
-                        <View style={[styles.pauseOverlay, { backgroundColor: isDarkMode ? 'rgba(20, 20, 20, 0.98)' : 'rgba(243, 240, 233, 0.98)' }]}>
-                            <Ionicons name="phone-portrait-outline" size={64} color="#FF5252" style={styles.alertIcon} />
-                            <Text style={[styles.pauseText, { color: currentTheme.textColor }]}>Calibrating: Place mobile phone flat on target evaluation surface desk to gather telemetry</Text>
-                        </View>
-                    )}
 
-                    {/* Loose labels styled with context theme attributes */}
                     <View style={styles.titleSection}>
                         <Text style={[styles.recordingTag, { color: currentTheme.textColor }]}>Live Wave Capture</Text>
                         <Text style={[styles.activityName, { color: currentTheme.textColor }]}>Sound Pollution Hunter</Text>
@@ -405,7 +503,6 @@ export default function SoundActivityScreen() {
                         </Text>
                     </View>
 
-                    {/* --- MAIN AMPLITUDE TRACKING DIAL VISUALIZER --- */}
                     <View style={styles.gaugeContainer}>
                         <View style={[styles.outerGaugeRing, { borderColor: getDynamicGaugeColor() }]}>
                             <Text style={styles.dbValueMain}>{currentDb}</Text>
@@ -413,7 +510,6 @@ export default function SoundActivityScreen() {
                         </View>
                     </View>
 
-                    {/* --- LIVE STATS BOARD METRICS BLOCK --- */}
                     <View style={styles.metricsContainer}>
                         <Text style={[styles.metricText, { color: currentTheme.textColor }]}>
                             Evaluated Peak Value: <Text style={styles.metricBold}>{peakDb > 0 ? `${peakDb} dB` : "-- dB"}</Text>
@@ -444,7 +540,6 @@ export default function SoundActivityScreen() {
                         )}
                     </View>
 
-                    {/* Run status identifiers styled dynamically */}
                     <View style={styles.statusRow}>
                         <View style={styles.redDot} />
                         <Text style={[styles.statusText, { color: currentTheme.textColor }]}>
@@ -486,6 +581,7 @@ export default function SoundActivityScreen() {
     );
 }
 
+// ─── Styles ───────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
     background: { flex: 1 },
     safeArea: { flex: 1 },

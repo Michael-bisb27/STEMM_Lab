@@ -7,6 +7,18 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import { Stack, useRouter } from 'expo-router';
 import { Accelerometer } from 'expo-sensors';
+import { getAuth } from 'firebase/auth';
+import {
+    addDoc,
+    collection,
+    doc,
+    GeoPoint,
+    getDoc,
+    getDocs,
+    query,
+    Timestamp,
+    where
+} from 'firebase/firestore';
 import React, { useEffect, useRef, useState } from 'react';
 import {
     ActivityIndicator,
@@ -23,42 +35,26 @@ import {
     View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-
-// --- FIREBASE IMPORTS ---
-import { getAuth } from 'firebase/auth';
-import {
-    addDoc,
-    collection,
-    doc,
-    GeoPoint,
-    getDoc,
-    getDocs,
-    query,
-    Timestamp,
-    where
-} from 'firebase/firestore';
 import { db_cloud } from '../services/firebase_config';
-
-// --- THEME IMPORTS ---
 import { themes } from '../theme/theme';
 import { useTheme } from '../theme/theme_context';
 
 const { width } = Dimensions.get('window');
 const ACTIVITY_ID = "U2gkCfB3uS6Z8jjmo3Kp"; 
 
+// allow layout animations on android
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
     UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
+// ─── Per-screen content ───────────────────────────────────────────────────────
 export default function BreathingReadyScreen() {
     const router = useRouter();
     const [fontsLoaded] = useFonts({ BalsamiqSans_400Regular, BalsamiqSans_700Bold });
 
-    // --- CONSUME GLOBAL THEME CONTEXT ---
     const { isDarkMode } = useTheme();
     const currentTheme = isDarkMode ? themes.dark : themes.light;
 
-    // --- STATES ---
     const [activity, setActivity] = useState<any>(null);
     const [loading, setLoading] = useState(true);
     const [isStarting, setIsStarting] = useState(false);
@@ -74,7 +70,6 @@ export default function BreathingReadyScreen() {
     const [accelData, setAccelData] = useState({ x: 0, y: 0, z: 0 });
     const subscription = useRef<any>(null);
 
-    // --- 1. INITIAL DATA FETCH & SENSOR SUBSCRIPTION ---
     useEffect(() => {
         const fetchData = async () => {
             try {
@@ -94,6 +89,7 @@ export default function BreathingReadyScreen() {
                         setTeamId(tId);
 
                         if (tId) {
+                            // cross-reference team members query
                             const studentsQuery = query(
                                 collection(db_cloud, "MS_Student"),
                                 where("teamID", "==", tId)
@@ -113,6 +109,7 @@ export default function BreathingReadyScreen() {
         const subscribeSensors = () => {
             Accelerometer.setUpdateInterval(100);
             subscription.current = Accelerometer.addListener(data => {
+                // limit stream precision truncation to three decimals
                 setAccelData({
                     x: parseFloat(data.x.toFixed(3)),
                     y: parseFloat(data.y.toFixed(3)),
@@ -131,16 +128,15 @@ export default function BreathingReadyScreen() {
         };
     }, []);
 
-    // --- 2. SENSOR CALIBRATION SIMULATION ---
     const handleCalibration = () => {
         setIsCalibrating(true);
+        // fake async window to mimic physical device zeroing balance
         setTimeout(() => {
             setIsCalibrating(false);
             setIsCalibrated(true);
         }, 2000);
     };
 
-    // --- 3. START CHALLENGE ---
     const handleStartChallenge = async () => {
         if (!teamId) return Alert.alert("Error", "No Team Session found.");
         
@@ -156,6 +152,7 @@ export default function BreathingReadyScreen() {
             const location = await Location.getCurrentPositionAsync({});
             const { latitude, longitude } = location.coords;
 
+            // hardcoded regional school geofence check
             const isWithinZone = 
                 latitude >= -6.23 && latitude <= -6.19 && 
                 longitude >= 106.79 && longitude <= 106.82;
@@ -173,6 +170,7 @@ export default function BreathingReadyScreen() {
                 where("ActivityID", "==", ACTIVITY_ID)
             );
             
+            // fetch counts to dynamically increment next trial number
             const querySnapshot = await getDocs(q);
             const nextTrialNumber = querySnapshot.size + 1;
 
@@ -200,10 +198,12 @@ export default function BreathingReadyScreen() {
     const allRequirementsMet = progressPercent === 100;
 
     useEffect(() => {
+        // native layout spring morphs fired on completion counters
         LayoutAnimation.configureNext(LayoutAnimation.Presets.spring);
     }, [completedTasks]);
 
     if (!fontsLoaded || loading) {
+        // structural loader base shell to prevent layout blinking
         return (
             <View style={[styles.loader, { backgroundColor: isDarkMode ? '#141414' : '#F3F0E9' }]}>
                 <ActivityIndicator size="large" color="#00E5FF" />
@@ -212,11 +212,9 @@ export default function BreathingReadyScreen() {
     }
 
     return (
-        /* Dynamic Theme Background Image Swap */
         <ImageBackground source={currentTheme.backgroundImage} style={styles.background}>
             <Stack.Screen options={{ headerShown: false }} />
             
-            {/* --- TOP BAR --- */}
             <View style={styles.headerWrapper}>
                 <SafeAreaView edges={['top']}>
                     <View style={styles.topBar}>
@@ -243,13 +241,11 @@ export default function BreathingReadyScreen() {
             <SafeAreaView style={styles.safeArea} edges={['left', 'right', 'bottom']}>
                 <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.mainScroll}>
                     
-                    {/* Title Section (Dynamic text color applied) */}
                     <View style={styles.titleSection}>
                         <Text style={[styles.phaseTag, { color: currentTheme.textColor }]}>Readiness Phase:</Text>
                         <Text style={[styles.activityName, { color: currentTheme.textColor }]}>{activity?.activityName || "Breathing Pace Trainer"}</Text>
                     </View>
 
-                    {/* Instruction Box remains clean layout block */}
                     <View style={styles.overviewBox}>
                         <View style={styles.overviewTextContainer}>
                             <Text style={styles.overviewText}>
@@ -265,10 +261,8 @@ export default function BreathingReadyScreen() {
                         </View>
                     </View>
 
-                    {/* Dynamic section header applied */}
                     <Text style={[styles.sectionHeadingUnderlined, { color: currentTheme.textColor }]}>Team Readiness Checklist:</Text>
 
-                    {/* Check 1: Accelerometer Active Data Streams */}
                     <View style={styles.checkItem}>
                         <View style={styles.checkHeader}>
                             <Ionicons 
@@ -284,7 +278,6 @@ export default function BreathingReadyScreen() {
                         </View>
                     </View>
 
-                    {/* Check 2: Respiratory Sensor Baseline Calibration */}
                     <View style={styles.checkItem}>
                         <View style={styles.checkHeader}>
                             <Ionicons 
@@ -311,7 +304,6 @@ export default function BreathingReadyScreen() {
                         </View>
                     </View>
 
-                    {/* Check 3: User Prepared */}
                     <TouchableOpacity style={styles.checkItem} onPress={() => setIsUserPrepared(!isUserPrepared)}>
                         <View style={styles.checkHeader}>
                             <Ionicons name={isUserPrepared ? "checkbox" : "square-outline"} size={24} color={isUserPrepared ? "#00E5FF" : currentTheme.textColor} />
@@ -319,7 +311,6 @@ export default function BreathingReadyScreen() {
                         </View>
                     </TouchableOpacity>
 
-                    {/* Check 4: Safe and Clear Space */}
                     <TouchableOpacity style={styles.checkItem} onPress={() => setIsSafeSpace(!isSafeSpace)}>
                         <View style={styles.checkHeader}>
                             <Ionicons name={isSafeSpace ? "checkbox" : "square-outline"} size={24} color={isSafeSpace ? "#00E5FF" : currentTheme.textColor} />
@@ -350,6 +341,7 @@ export default function BreathingReadyScreen() {
     );
 }
 
+// ─── Styles ───────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
     background: { flex: 1 },
     safeArea: { flex: 1 },

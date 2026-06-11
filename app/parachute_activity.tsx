@@ -5,6 +5,20 @@ import {
 } from '@expo-google-fonts/balsamiq-sans';
 import { Ionicons } from '@expo/vector-icons';
 import { Stack, useRouter } from 'expo-router';
+import { Accelerometer } from 'expo-sensors';
+import { getAuth } from 'firebase/auth';
+import {
+    addDoc,
+    collection,
+    doc,
+    getDoc,
+    getDocs,
+    limit,
+    orderBy,
+    query,
+    Timestamp,
+    where
+} from 'firebase/firestore';
 import React, { useEffect, useRef, useState } from 'react';
 import {
     ActivityIndicator,
@@ -22,30 +36,8 @@ import {
     View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-
-// --- SENSORS IMPORT ---
-import { Accelerometer } from 'expo-sensors';
-
-// --- FIREBASE IMPORTS ---
-import { getAuth } from 'firebase/auth';
-import {
-    addDoc,
-    collection,
-    doc,
-    getDoc,
-    getDocs,
-    limit,
-    orderBy,
-    query,
-    Timestamp,
-    where
-} from 'firebase/firestore';
+import { parachuteOps } from '../database/db';
 import { db_cloud } from '../services/firebase_config';
-
-// --- LOCAL DATABASE IMPORT ---
-import { parachuteOps } from '../database/db'; // Added to handle high-velocity local logging
-
-// --- THEME IMPORTS ---
 import { themes } from '../theme/theme';
 import { useTheme } from '../theme/theme_context';
 
@@ -57,32 +49,28 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
     UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
+// ─── Per-screen content ───────────────────────────────────────────────────────
 export default function ParachuteActivityScreen() {
     const router = useRouter();
     const [fontsLoaded] = useFonts({ BalsamiqSans_400Regular, BalsamiqSans_700Bold });
 
-    // --- CONSUME GLOBAL THEME CONTEXT ---
     const { isDarkMode } = useTheme();
     const currentTheme = isDarkMode ? themes.dark : themes.light;
 
-    // --- EXPERIMENTAL STRUCTURAL STATES ---
     const [actionPhase, setActionPhase] = useState<1 | 2 | 3>(1); 
     const [trial, setTrial] = useState<1 | 2 | 3>(1); 
     const [sessionState, setSessionState] = useState<'idle' | 'falling' | 'impact_captured'>('idle');
     const [dropTime, setDropTime] = useState<number>(0);
     const [showFormulaSheet, setShowFormulaSheet] = useState<boolean>(false);
     
-    // Cloud Core Metadata Tracking
     const [loading, setLoading] = useState(true);
     const [isFinishing, setIsFinishing] = useState(false);
     const [teamId, setTeamId] = useState<string | null>(null);
     const [lastAttemptId, setLastAttemptId] = useState<string | null>(null);
 
-    // Live Sensor Telemetry Metrics
     const [maxGForce, setMaxGForce] = useState<number>(1.0);
     const [liveG, setLiveG] = useState<number>(1.0);
     
-    // UI NOTIFICATION & MODAL STATES
     const [toastMessage, setToastMessage] = useState<string>('');
     const toastOpacity = useRef(new Animated.Value(0)).current;
     
@@ -93,15 +81,13 @@ export default function ParachuteActivityScreen() {
         type: 'info' 
     });
 
-    // Internal Timers and References
     const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const startTimestamp = useRef<number>(0);
     const subscription = useRef<any>(null);
 
-    // --- HELPER TO CHECK DETOX BYPASS FLAG ---
     const checkDetoxBypass = (): boolean => {
         try {
-            // Inline require avoids build-time crashes if package isn't linked yet
+            // inline require stops bundle crash if package isn't linked yet
             const { LaunchArguments } = require('react-native-launch-arguments');
             const args = LaunchArguments.value();
             return args && args.detoxSkipAuth === true;
@@ -110,7 +96,6 @@ export default function ParachuteActivityScreen() {
         }
     };
 
-    // --- TOAST DISPLAY ACTION TRIGGER ---
     const showToast = (msg: string) => {
       setToastMessage(msg); 
       Animated.sequence([
@@ -120,7 +105,6 @@ export default function ParachuteActivityScreen() {
       ]).start(() => setToastMessage(''));
   };
 
-    // --- 1. SENSOR STREAM CONFIGURATION ---
     useEffect(() => {
         if (sessionState !== 'falling') {
             if (subscription.current) {
@@ -130,6 +114,7 @@ export default function ParachuteActivityScreen() {
             return;
         }
 
+        // speed up sensor polls during live falling phase
         Accelerometer.setUpdateInterval(50); 
         
         subscription.current = Accelerometer.addListener(data => {
@@ -140,6 +125,7 @@ export default function ParachuteActivityScreen() {
                 setMaxGForce(totalG);
             }
             
+            // auto trigger catch on physical impact spike thresholds
             if (totalG > 4.5) {
                 handleImpactTrigger();
             }
@@ -150,11 +136,10 @@ export default function ParachuteActivityScreen() {
         };
     }, [sessionState, maxGForce]);
 
-    // --- 2. RETRIEVE METADATA CONTEXT ---
     useEffect(() => {
         const fetchSessionMetadata = async () => {
             try {
-                // MODIFIED: Intercept and apply fake credentials if testing via Detox
+                // bypass auth check routines if running under detox e2e arguments
                 if (checkDetoxBypass()) {
                     setTeamId("DETOX-TEST-TEAM");
                     setLastAttemptId("DETOX-TEST-ATTEMPT");
@@ -170,6 +155,7 @@ export default function ParachuteActivityScreen() {
                         const tId = studentDoc.data().teamID;
                         setTeamId(tId);
 
+                        // fetch most recent setup session context block
                         const qAttempt = query(
                             collection(db_cloud, "FC_Attempt"),
                             where("TeamID", "==", tId),
@@ -192,7 +178,6 @@ export default function ParachuteActivityScreen() {
         fetchSessionMetadata();
     }, []);
 
-    // --- 3. STOPWATCH CALCULATIONS INTERACTION HOOKS ---
     const startDropTracking = () => {
         LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
         setSessionState('falling');
@@ -227,8 +212,8 @@ export default function ParachuteActivityScreen() {
         setSessionState('impact_captured');
         showToast("Impact Landing Recorded!");
 
-        // --- INJECT LOCAL SQLITE STORAGE UPDATE ---
         try {
+            // save trial run details to local sqlite fallback
             parachuteOps.insertTrial({
                 attempt_id: lastAttemptId || "UNKNOWN",
                 action_phase: actionPhase,
@@ -242,13 +227,11 @@ export default function ParachuteActivityScreen() {
         }
     };
 
-    // --- 4. DATA LOG ARCHITECTURE MATRIX REDIRECT ---
     const commitSessionResults = async () => {
         if (isFinishing) return;
         setIsFinishing(true);
 
         try {
-            // MODIFIED: Bypass actual Firestore document compilation to prevent Auth rules blocks
             if (checkDetoxBypass()) {
                 showToast("Mock Data Packet Transmitted!");
                 setTimeout(() => {
@@ -257,7 +240,7 @@ export default function ParachuteActivityScreen() {
                         params: {
                             activityId: ACTIVITY_ID,
                             activityTitle: "Parachute Drop Challenge",
-                            attemptId: lastAttemptId || "UNKNOWN" // Passed along to pinpoint specific SQLite local queries
+                            attemptId: lastAttemptId || "UNKNOWN" // pass along to query matching rows in local sqlite later
                         }
                     });
                 }, 1000);
@@ -281,7 +264,7 @@ export default function ParachuteActivityScreen() {
                     params: {
                         activityId: ACTIVITY_ID,
                         activityTitle: "Parachute Drop Challenge",
-                        attemptId: lastAttemptId || "UNKNOWN" // Passed along to pinpoint specific SQLite local queries
+                        attemptId: lastAttemptId || "UNKNOWN" // pass along to query matching rows in local sqlite later
                     }
                 });
             }, 1000);
@@ -388,7 +371,6 @@ export default function ParachuteActivityScreen() {
             <SafeAreaView style={styles.safeArea} edges={['left', 'right']}>
                 <View style={styles.containerContent}>
                     
-                    {/* Title Section with testID Added */}
                     <View style={styles.titleSection}>
                         <Text testID="physicsProfileHeader" style={[styles.recordingTag, { color: currentTheme.textColor }]}>Live Physics Profile</Text>
                         <Text style={[styles.activityName, { color: currentTheme.textColor }]}>{getPhaseLabel()}</Text>
@@ -456,7 +438,6 @@ export default function ParachuteActivityScreen() {
                         </View>
                     </View>
 
-                    {/* Button Controls Container with testID Added */}
                     <View style={styles.controlInteractionBlock}>
                         {sessionState === 'idle' && (
                             <TouchableOpacity testID="releasePayloadButton" activeOpacity={0.8} style={styles.primaryCircleLaunchBtn} onPress={startDropTracking}>
@@ -516,6 +497,7 @@ export default function ParachuteActivityScreen() {
     );
 }
 
+// ─── Styles ───────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
     background: { flex: 1 },
     safeArea: { flex: 1 },

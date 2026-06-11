@@ -58,9 +58,9 @@ import { useTheme } from '../theme/theme_context';
 const { width } = Dimensions.get('window');
 
 // --- CLOUDINARY CONFIGURATION CREDENTIALS ---
-const CLOUDINARY_CLOUD_NAME = "dwjorymkp";
-const CLOUDINARY_API_KEY = "686927413117819";
-const CLOUDINARY_API_SECRET = "FgUpJgCnC6RsDpPbNHvw6_C06gY";
+const CLOUDINARY_CLOUD_NAME = process.env.EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME;
+const CLOUDINARY_API_KEY = process.env.CLOUDINARY_API_KEY;
+const CLOUDINARY_API_SECRET = process.env.CLOUDINARY_API_SECRET;
 
 // --- PROFANITY BLOCKLIST ---
 const BANNED_WORDS = [

@@ -7,6 +7,18 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import { Stack, useRouter } from 'expo-router';
 import { Accelerometer } from 'expo-sensors';
+import { getAuth } from 'firebase/auth';
+import {
+    addDoc,
+    collection,
+    doc,
+    GeoPoint,
+    getDoc,
+    getDocs,
+    query,
+    Timestamp,
+    where
+} from 'firebase/firestore';
 import React, { useEffect, useRef, useState } from 'react';
 import {
     ActivityIndicator,
@@ -24,49 +36,32 @@ import {
     View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-
-// --- FIREBASE IMPORTS ---
-import { getAuth } from 'firebase/auth';
-import {
-    addDoc,
-    collection,
-    doc,
-    GeoPoint,
-    getDoc,
-    getDocs,
-    query,
-    Timestamp,
-    where
-} from 'firebase/firestore';
 import { db_cloud } from '../services/firebase_config';
-
-// --- THEME IMPORTS ---
 import { themes } from '../theme/theme';
 import { useTheme } from '../theme/theme_context';
 
 const { width } = Dimensions.get('window');
 const ACTIVITY_ID = "KXCsIyy3aDNUJWtcmbgy";
 
+// allow layout animations on android
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
     UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
+// ─── Per-screen content ───────────────────────────────────────────────────────
 export default function HumanPerformanceReadyScreen() {
     const router = useRouter();
     const [fontsLoaded] = useFonts({ BalsamiqSans_400Regular, BalsamiqSans_700Bold });
 
-    // --- CONSUME GLOBAL THEME CONTEXT ---
     const { isDarkMode } = useTheme();
     const currentTheme = isDarkMode ? themes.dark : themes.light;
 
-    // --- STATES ---
     const [activity, setActivity] = useState<any>(null);
     const [loading, setLoading] = useState(true);
     const [isStarting, setIsStarting] = useState(false);
     const [teamMemberCount, setTeamMemberCount] = useState(0);
     const [teamId, setTeamId] = useState<string | null>(null);
     
-    // Checklist Verification States
     const [isSensorReading, setIsSensorReading] = useState(false);
     const [isGripSecure, setIsGripSecure] = useState(false);
     const [isUserPrepared, setIsUserPrepared] = useState(false);
@@ -75,7 +70,6 @@ export default function HumanPerformanceReadyScreen() {
     const [vibrationForce, setVibrationForce] = useState("0.00");
     const subscription = useRef<any>(null);
 
-    // --- 1. SENSOR & DATA INITIALIZATION ---
     useEffect(() => {
         const fetchData = async () => {
             try {
@@ -95,6 +89,7 @@ export default function HumanPerformanceReadyScreen() {
                         setTeamId(tId);
 
                         if (tId) {
+                            // cross-reference team members query
                             const studentsQuery = query(
                                 collection(db_cloud, "MS_Student"),
                                 where("teamID", "==", tId)
@@ -114,6 +109,7 @@ export default function HumanPerformanceReadyScreen() {
         const subscribeSensors = () => {
             Accelerometer.setUpdateInterval(100);
             subscription.current = Accelerometer.addListener(data => {
+                // compute total vector magnitude for force telemetry
                 const magnitude = Math.sqrt(data.x ** 2 + data.y ** 2 + data.z ** 2);
                 setVibrationForce(magnitude.toFixed(2));
                 
@@ -130,7 +126,6 @@ export default function HumanPerformanceReadyScreen() {
         };
     }, [isSensorReading]);
 
-    // --- 2. START ACTION HANDLING ---
     const handleStartChallenge = async () => {
         if (!teamId) return Alert.alert("Error", "No Team Session found.");
         
@@ -146,6 +141,7 @@ export default function HumanPerformanceReadyScreen() {
             const location = await Location.getCurrentPositionAsync({});
             const { latitude, longitude } = location.coords;
 
+            // regional geofence boundaries for target school zone
             const isWithinZone = latitude >= -6.23 && latitude <= -6.19 && longitude >= 106.79 && longitude <= 106.82;
 
             if (!isWithinZone) {
@@ -156,6 +152,8 @@ export default function HumanPerformanceReadyScreen() {
 
             const attemptRef = collection(db_cloud, "FC_Attempt");
             const q = query(attemptRef, where("TeamID", "==", teamId), where("ActivityID", "==", ACTIVITY_ID));
+            
+            // fetch counts to determine next incremental trial number
             const querySnapshot = await getDocs(q);
             const nextTrialNumber = querySnapshot.size + 1;
 
@@ -183,10 +181,12 @@ export default function HumanPerformanceReadyScreen() {
     const progressPercent = (completedTasks / 4) * 100;
 
     useEffect(() => {
+        // native physics spring layout transition triggers on checklist changes
         LayoutAnimation.configureNext(LayoutAnimation.Presets.spring);
     }, [completedTasks]);
 
     if (!fontsLoaded || loading) {
+        // structural loader shell container to prevent early white flash updates
         return (
             <View style={[styles.loader, { backgroundColor: isDarkMode ? '#141414' : '#F3F0E9' }]}>
                 <ActivityIndicator size="large" color="#00E5FF" />
@@ -195,7 +195,6 @@ export default function HumanPerformanceReadyScreen() {
     }
 
     return (
-        /* Dynamic Theme Background Image Swap */
         <ImageBackground source={currentTheme.backgroundImage} style={styles.background}>
             <Stack.Screen options={{ headerShown: false }} />
             
@@ -225,13 +224,11 @@ export default function HumanPerformanceReadyScreen() {
             <SafeAreaView style={styles.safeArea} edges={['left', 'right', 'bottom']}>
                 <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.mainScroll}>
                     
-                    {/* Title Section (Dynamic colors applied) */}
                     <View style={styles.titleSection}>
                         <Text style={[styles.phaseTag, { color: currentTheme.textColor }]}>Readiness Phase:</Text>
                         <Text style={[styles.activityName, { color: currentTheme.textColor }]}>{activity?.activityName || "Human Performance Lab"}</Text>
                     </View>
 
-                    {/* Overview layout stays white summary card block */}
                     <View style={styles.overviewBox}>
                         <View style={styles.overviewTextContainer}>
                             <Text style={styles.bold}>Instructions:</Text>
@@ -247,7 +244,6 @@ export default function HumanPerformanceReadyScreen() {
                         </View>
                     </View>
 
-                    {/* Movement Guide labels (Dynamic text colors applied) */}
                     <Text style={[styles.sectionHeadingUnderlined, { color: currentTheme.textColor }]}>Movement Guide:</Text>
                     <View style={styles.diagramContainer}>
                         <View style={styles.diagramItem}>
@@ -264,10 +260,8 @@ export default function HumanPerformanceReadyScreen() {
                         </View>
                     </View>
 
-                    {/* Dynamic checklist header applied */}
                     <Text style={[styles.sectionHeadingUnderlined, { color: currentTheme.textColor }]}>Readiness Checklist:</Text>
 
-                    {/* Check 1: Live Hardware Vibration Sensor Check */}
                     <View style={styles.checkItem}>
                         <View style={styles.checkHeader}>
                             <Ionicons 
@@ -283,7 +277,6 @@ export default function HumanPerformanceReadyScreen() {
                         </View>
                     </View>
 
-                    {/* Check 2: Manual Device Grip Security Check */}
                     <TouchableOpacity style={styles.checkItem} onPress={() => setIsGripSecure(!isGripSecure)}>
                         <View style={styles.checkHeader}>
                             <Ionicons 
@@ -299,7 +292,6 @@ export default function HumanPerformanceReadyScreen() {
                         </View>
                     </TouchableOpacity>
 
-                    {/* Check 3: User Prepared */}
                     <TouchableOpacity style={styles.checkItem} onPress={() => setIsUserPrepared(!isUserPrepared)}>
                         <View style={styles.checkHeader}>
                             <Ionicons name={isUserPrepared ? "checkbox" : "square-outline"} size={24} color={isUserPrepared ? "#00E5FF" : currentTheme.textColor} />
@@ -307,7 +299,6 @@ export default function HumanPerformanceReadyScreen() {
                         </View>
                     </TouchableOpacity>
 
-                    {/* Check 4: Safe Space */}
                     <TouchableOpacity style={styles.checkItem} onPress={() => setIsSafeSpace(!isSafeSpace)}>
                         <View style={styles.checkHeader}>
                             <Ionicons name={isSafeSpace ? "checkbox" : "square-outline"} size={24} color={isSafeSpace ? "#00E5FF" : currentTheme.textColor} />
@@ -338,6 +329,7 @@ export default function HumanPerformanceReadyScreen() {
     );
 }
 
+// ─── Styles ───────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
     background: { flex: 1 },
     safeArea: { flex: 1 },

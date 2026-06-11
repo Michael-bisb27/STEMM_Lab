@@ -3,13 +3,13 @@ import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 
 const firebaseConfig = {
-  apiKey: "AIzaSyB4A5K9GXqeL4BA06QJ0pkeT1sCIgECQ7c",
-  authDomain: "stemm-lab-ff36b.firebaseapp.com",
-  projectId: "stemm-lab-ff36b",
-  storageBucket: "stemm-lab-ff36b.firebasestorage.app",
-  messagingSenderId: "180625478999",
-  appId: "1:180625478999:web:9922ff1a2fc7da0dff5a12",
-  measurementId: "G-YDMS3CQPYX"
+  apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY,
+  authDomain: process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN,
+  projectId: process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID,
+  storageBucket: process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
+  appId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID,
+  measurementId: process.env.EXPO_PUBLIC_FIREBASE_MEASUREMENT_ID,
 };
 
 // Initialize Firebase

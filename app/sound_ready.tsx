@@ -4,8 +4,21 @@ import {
     useFonts,
 } from '@expo-google-fonts/balsamiq-sans';
 import { Ionicons } from '@expo/vector-icons';
+import { Audio } from 'expo-av'; // ← ADDED
 import * as Location from 'expo-location';
 import { Stack, useRouter } from 'expo-router';
+import { getAuth } from 'firebase/auth';
+import {
+    addDoc,
+    collection,
+    doc,
+    GeoPoint,
+    getDoc,
+    getDocs,
+    query,
+    Timestamp,
+    where
+} from 'firebase/firestore';
 import React, { useEffect, useRef, useState } from 'react';
 import {
     ActivityIndicator,
@@ -22,78 +35,53 @@ import {
     View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-
-// --- FIREBASE IMPORTS ---
-import { getAuth } from 'firebase/auth';
-import {
-    addDoc,
-    collection,
-    doc,
-    GeoPoint,
-    getDoc,
-    getDocs,
-    query,
-    Timestamp,
-    where
-} from 'firebase/firestore';
 import { db_cloud } from '../services/firebase_config';
-
-// --- THEME IMPORTS ---
 import { themes } from '../theme/theme';
 import { useTheme } from '../theme/theme_context';
-
 const { width } = Dimensions.get('window');
 const ACTIVITY_ID = "0clUTH6JFi8V2uuexn9k";
-
+// allow layout animations on android
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
     UIManager.setLayoutAnimationEnabledExperimental(true);
 }
-
+// ─── Per-screen content ───────────────────────────────────────────────────────
 export default function SoundPollutionReadyScreen() {
     const router = useRouter();
     const [fontsLoaded] = useFonts({ BalsamiqSans_400Regular, BalsamiqSans_700Bold });
-
-    // --- CONSUME GLOBAL THEME CONTEXT ---
     const { isDarkMode } = useTheme();
     const currentTheme = isDarkMode ? themes.dark : themes.light;
-
-    // --- STATES ---
     const [activity, setActivity] = useState<any>(null);
     const [loading, setLoading] = useState(true);
     const [isStarting, setIsStarting] = useState(false);
     const [teamMemberCount, setTeamMemberCount] = useState(0);
     const [teamId, setTeamId] = useState<string | null>(null);
     
-    // Checklist requirements
     const [isMicTested, setIsMicTested] = useState(false);
     const [isUserPrepared, setIsUserPrepared] = useState(false);
     const [isSafeSpace, setIsSafeSpace] = useState(false);
-
     const [isTestingMic, setIsTestingMic] = useState(false);
     const [testDbLevel, setTestDbLevel] = useState(0);
     
     const micIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    const recordingRef = useRef<Audio.Recording | null>(null);   // ← ADDED
 
-    // --- 1. INITIAL DATA FETCH ---
     useEffect(() => {
         const fetchData = async () => {
             try {
                 const actRef = doc(db_cloud, "MS_Activity", ACTIVITY_ID);
                 const actSnap = await getDoc(actRef);
                 if (actSnap.exists()) setActivity(actSnap.data());
-
                 const auth = getAuth();
                 const user = auth.currentUser;
                 if (user) {
                     const studentDocRef = doc(db_cloud, "MS_Student", user.uid);
                     const studentSnap = await getDoc(studentDocRef);
-
                     if (studentSnap.exists()) {
                         const studentData = studentSnap.data();
                         const tId = studentData.teamID;
                         setTeamId(tId);
-
                         if (tId) {
+                            // cross-reference team members query
                             const studentsQuery = query(
                                 collection(db_cloud, "MS_Student"),
                                 where("teamID", "==", tId)
@@ -109,30 +97,74 @@ export default function SoundPollutionReadyScreen() {
                 setLoading(false);
             }
         };
-
         fetchData();
         return () => {
             if (micIntervalRef.current) clearInterval(micIntervalRef.current);
+            // ← ADDED: stop any live recording on unmount
+            if (recordingRef.current) {
+                recordingRef.current.stopAndUnloadAsync().catch(() => {});
+                recordingRef.current = null;
+            }
         };
     }, []);
 
-    // --- 2. MIC SENSOR TEST SIMULATION ---
-    const handleMicTestToggle = () => {
+    // Helper to turn off microphone sampling safely when navigating away
+    const stopAudioTest = async () => {
+        if (micIntervalRef.current) {
+            clearInterval(micIntervalRef.current);
+            micIntervalRef.current = null;
+        }
+        if (recordingRef.current) {
+            try {
+                await recordingRef.current.stopAndUnloadAsync();
+            } catch (error) {
+                console.error("Error stopping recording on navigation:", error);
+            }
+            recordingRef.current = null;
+        }
+        setIsTestingMic(false);
+    };
+
+    // ← REPLACED: now uses real expo-av microphone with metering
+    const handleMicTestToggle = async () => {
         if (isTestingMic) {
-            if (micIntervalRef.current) clearInterval(micIntervalRef.current);
-            setIsTestingMic(false);
+            // ── STOP ──────────────────────────────────────────────
+            await stopAudioTest();
             setIsMicTested(true);
         } else {
+            // ── START ─────────────────────────────────────────────
+            const { granted } = await Audio.requestPermissionsAsync();
+            if (!granted) {
+                Alert.alert("Permission Denied", "Microphone access is required to test the sensor.");
+                return;
+            }
+            await Audio.setAudioModeAsync({
+                allowsRecordingIOS: true,
+                playsInSilentModeIOS: true,
+            });
+            const recording = new Audio.Recording();
+            await recording.prepareToRecordAsync({
+                ...Audio.RecordingOptionsPresets.HIGH_QUALITY,
+                isMeteringEnabled: true,
+            });
+            await recording.startAsync();
+            recordingRef.current = recording;
             setIsTestingMic(true);
-            micIntervalRef.current = setInterval(() => {
-                const randomDb = Math.floor(Math.random() * (65 - 35 + 1)) + 35;
-                setTestDbLevel(randomDb);
-                setIsMicTested(true); 
+
+            // poll metering every 150 ms — same cadence as before
+            micIntervalRef.current = setInterval(async () => {
+                if (!recordingRef.current) return;
+                const status = await recordingRef.current.getStatusAsync();
+                if (status.isRecording && status.metering !== undefined) {
+                    // metering is dBFS (–160 to 0); +90 gives a rough dB SPL estimate
+                    const dbSPL = Math.round(Math.max(30, Math.min(120, status.metering + 90)));
+                    setTestDbLevel(dbSPL);
+                    setIsMicTested(true);
+                }
             }, 150);
         }
     };
 
-    // --- 3. START CHALLENGE LOGIC ---
     const handleStartChallenge = async () => {
         if (!teamId) return Alert.alert("Error", "No active Team Session located.");
         
@@ -144,20 +176,17 @@ export default function SoundPollutionReadyScreen() {
                 setIsStarting(false);
                 return;
             }
-
             const location = await Location.getCurrentPositionAsync({});
             const { latitude, longitude } = location.coords;
-
+            // hardcoded regional school geofence check
             const isWithinZone = 
                 latitude >= -6.23 && latitude <= -6.19 && 
                 longitude >= 106.79 && longitude <= 106.82;
-
             if (!isWithinZone) {
                 Alert.alert("Outside Zone", "This activity must be performed within the Senayan/Sudirman school area.");
                 setIsStarting(false);
                 return;
             }
-
             const attemptRef = collection(db_cloud, "FC_Attempt");
             const q = query(
                 attemptRef, 
@@ -165,9 +194,9 @@ export default function SoundPollutionReadyScreen() {
                 where("ActivityID", "==", ACTIVITY_ID)
             );
             
+            // fetch counts to dynamically increment next trial number
             const querySnapshot = await getDocs(q);
             const nextTrialNumber = querySnapshot.size + 1;
-
             await addDoc(attemptRef, {
                 ActivityID: ACTIVITY_ID,
                 GPS_Coordinates: new GeoPoint(latitude, longitude),
@@ -176,7 +205,8 @@ export default function SoundPollutionReadyScreen() {
                 attemptAt: Timestamp.now(),
                 trialNumber: nextTrialNumber
             });
-
+            
+            await stopAudioTest(); // Stop audio sampling before moving to the activity screen
             router.push('/sound_activity');
             
         } catch (error) {
@@ -186,18 +216,17 @@ export default function SoundPollutionReadyScreen() {
             setIsStarting(false);
         }
     };
-
     const completedTasks = [isMicTested, isUserPrepared, isSafeSpace].filter(Boolean).length;
     
-    // FIXED: Assigned safely to avoid global browser DOM ProgressEvent collision crashes
+    // avoid naming conflict with browser windows progressevent types
     const readinessProgressPercent = (completedTasks / 3) * 100;
     const allRequirementsMet = readinessProgressPercent === 100;
-
     useEffect(() => {
+        // fire spring animations natively on update shifts
         LayoutAnimation.configureNext(LayoutAnimation.Presets.spring);
     }, [completedTasks]);
-
     if (!fontsLoaded || loading) {
+        // fallback layout base to avoid early screen pops
         return (
             <View style={[styles.loader, { backgroundColor: isDarkMode ? '#141414' : '#F3F0E9' }]}>
                 <ActivityIndicator size="large" color="#00E5FF" />
@@ -206,14 +235,19 @@ export default function SoundPollutionReadyScreen() {
     }
 
     return (
-        /* Dynamic Theme Background Image Swap */
         <ImageBackground source={currentTheme.backgroundImage} style={styles.background}>
             <Stack.Screen options={{ headerShown: false }} />
             
             <View style={styles.headerWrapper}>
                 <SafeAreaView edges={['top']}>
                     <View style={styles.topBar}>
-                        <TouchableOpacity style={styles.iconCircle} onPress={() => router.push('/settings')}>
+                        <TouchableOpacity 
+                            style={styles.iconCircle} 
+                            onPress={async () => {
+                                await stopAudioTest();
+                                router.push('/settings');
+                            }}
+                        >
                             <Ionicons name="settings-outline" size={24} color="#666" />
                         </TouchableOpacity>
 
@@ -226,7 +260,13 @@ export default function SoundPollutionReadyScreen() {
                             </Text>
                         </View>
 
-                        <TouchableOpacity style={styles.iconCircle} onPress={() => router.push('/history')}>
+                        <TouchableOpacity 
+                            style={styles.iconCircle} 
+                            onPress={async () => {
+                                await stopAudioTest();
+                                router.push('/history');
+                            }}
+                        >
                             <Ionicons name="timer-outline" size={24} color="#666" />
                         </TouchableOpacity>
                     </View>
@@ -236,13 +276,11 @@ export default function SoundPollutionReadyScreen() {
             <SafeAreaView style={styles.safeArea} edges={['left', 'right', 'bottom']}>
                 <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.mainScroll}>
                     
-                    {/* Title Section (Dynamic colors applied) */}
                     <View style={styles.titleSection}>
                         <Text style={[styles.phaseTag, { color: currentTheme.textColor }]}>Readiness Phase:</Text>
                         <Text style={[styles.activityName, { color: currentTheme.textColor }]}>{activity?.activityName || "Sound Pollution Hunter"}</Text>
                     </View>
 
-                    {/* Overview layout card remains crisp default white background structure block */}
                     <View style={styles.overviewBox}>
                         <View style={styles.overviewTextContainer}>
                             <Text style={styles.overviewTitle}>Instructions:</Text>
@@ -254,10 +292,8 @@ export default function SoundPollutionReadyScreen() {
                         </View>
                     </View>
 
-                    {/* Dynamic text color applied */}
                     <Text style={[styles.sectionHeadingUnderlined, { color: currentTheme.textColor }]}>Team Readiness Checklist:</Text>
 
-                    {/* Requirement 1: Microphone & Audio Sampling (Dynamic borders applied) */}
                     <View style={[styles.checkItem, { borderColor: isDarkMode ? currentTheme.textColor : '#DDD' }]}>
                         <View style={styles.checkHeader}>
                             <Ionicons 
@@ -274,7 +310,6 @@ export default function SoundPollutionReadyScreen() {
                         </View>
                     </View>
 
-                    {/* Requirement 2: User Prepared (Dynamic borders applied) */}
                     <TouchableOpacity style={[styles.checkItem, { borderColor: isDarkMode ? currentTheme.textColor : '#DDD' }]} onPress={() => setIsUserPrepared(!isUserPrepared)}>
                         <View style={styles.checkHeader}>
                             <Ionicons name={isUserPrepared ? "checkbox" : "square-outline"} size={24} color={isUserPrepared ? "#00E5FF" : currentTheme.textColor} />
@@ -282,7 +317,6 @@ export default function SoundPollutionReadyScreen() {
                         </View>
                     </TouchableOpacity>
 
-                    {/* Requirement 3: Safe Space (Dynamic borders applied) */}
                     <TouchableOpacity style={[styles.checkItem, { borderColor: isDarkMode ? currentTheme.textColor : '#DDD' }]} onPress={() => setIsSafeSpace(!isSafeSpace)}>
                         <View style={styles.checkHeader}>
                             <Ionicons name={isSafeSpace ? "checkbox" : "square-outline"} size={24} color={isSafeSpace ? "#00E5FF" : currentTheme.textColor} />
@@ -290,7 +324,6 @@ export default function SoundPollutionReadyScreen() {
                         </View>
                     </TouchableOpacity>
 
-                    {/* --- REFERENCE TABLE (Dynamic text color configured) --- */}
                     <Text style={[styles.tableSectionTitle, { color: currentTheme.textColor }]}>Sound Levels & Hearing Damage Risk Reference</Text>
                     <View style={styles.tableWrapper}>
                         <View style={styles.tableRow}>
@@ -373,16 +406,23 @@ export default function SoundPollutionReadyScreen() {
                 </ScrollView>
 
                 <View style={styles.bottomActionArea}>
-                    <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
+                    <TouchableOpacity 
+                        style={styles.backButton} 
+                        onPress={async () => {
+                            await stopAudioTest();
+                            router.back();
+                        }}
+                    >
                         <Ionicons name="arrow-back" size={24} color="#000" />
                         <Text style={styles.backButtonText}>Back</Text>
                     </TouchableOpacity>
                 </View>
-            </SafeAreaView>
+                    </SafeAreaView>
         </ImageBackground>
     );
 }
 
+// ─── Styles ───────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
     background: { flex: 1 },
     safeArea: { flex: 1 },

@@ -7,6 +7,18 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import { Stack, useRouter } from 'expo-router';
 import { Accelerometer } from 'expo-sensors';
+import { getAuth } from 'firebase/auth';
+import {
+    addDoc,
+    collection,
+    doc,
+    GeoPoint,
+    getDoc,
+    getDocs,
+    query,
+    Timestamp,
+    where
+} from 'firebase/firestore';
 import React, { useEffect, useRef, useState } from 'react';
 import {
     ActivityIndicator,
@@ -23,23 +35,7 @@ import {
     View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-
-// --- FIREBASE IMPORTS ---
-import { getAuth } from 'firebase/auth';
-import {
-    addDoc,
-    collection,
-    doc,
-    GeoPoint,
-    getDoc,
-    getDocs,
-    query,
-    Timestamp,
-    where
-} from 'firebase/firestore';
 import { db_cloud } from '../services/firebase_config';
-
-// --- THEME IMPORTS ---
 import { themes } from '../theme/theme';
 import { useTheme } from '../theme/theme_context';
 
@@ -47,19 +43,19 @@ const { width } = Dimensions.get('window');
 const ACTIVITY_ID = "9QUEyTVnLCsuXBgWcCQs";
 const VIBRATION_THRESHOLD = 1.2; 
 
+// allow layout animations on android
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
     UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
+// ─── Per-screen content ───────────────────────────────────────────────────────
 export default function EarthquakeReadyScreen() {
     const router = useRouter();
     const [fontsLoaded] = useFonts({ BalsamiqSans_400Regular, BalsamiqSans_700Bold });
 
-    // --- CONSUME GLOBAL THEME CONTEXT ---
     const { isDarkMode } = useTheme();
     const currentTheme = isDarkMode ? themes.dark : themes.light;
 
-    // --- STATES ---
     const [activity, setActivity] = useState<any>(null);
     const [loading, setLoading] = useState(true);
     const [isStarting, setIsStarting] = useState(false);
@@ -77,9 +73,9 @@ export default function EarthquakeReadyScreen() {
     });
 
     const [gForce, setGForce] = useState(1.0);
+    const [hasTriggeredOnce, setHasTriggeredOnce] = useState(false);
     const subscription = useRef<any>(null);
 
-    // --- 1. DATA AND SENSOR SETUP ---
     useEffect(() => {
         const fetchData = async () => {
             try {
@@ -99,6 +95,7 @@ export default function EarthquakeReadyScreen() {
                         setTeamId(tId);
 
                         if (tId) {
+                            // cross-reference team members query
                             const studentsQuery = query(
                                 collection(db_cloud, "MS_Student"),
                                 where("teamID", "==", tId)
@@ -118,8 +115,14 @@ export default function EarthquakeReadyScreen() {
         const subscribeAccelerometer = () => {
             Accelerometer.setUpdateInterval(100);
             subscription.current = Accelerometer.addListener(data => {
+                // compute total g-force using vector magnitude
                 const calculatedGForce = Math.sqrt(data.x ** 2 + data.y ** 2 + data.z ** 2);
-                setGForce(Math.round(calculatedGForce * 100) / 100);
+                const currentG = Math.round(calculatedGForce * 100) / 100;
+                setGForce(currentG);
+                
+                if (currentG > VIBRATION_THRESHOLD) {
+                    setHasTriggeredOnce(true);
+                }
             });
         };
 
@@ -131,7 +134,6 @@ export default function EarthquakeReadyScreen() {
         };
     }, []);
 
-    // --- 2. TRANSITION LOGIC ---
     const handleStartChallenge = async () => {
         if (!teamId) return Alert.alert("Error", "No Team Session found.");
         
@@ -147,6 +149,7 @@ export default function EarthquakeReadyScreen() {
             const location = await Location.getCurrentPositionAsync({});
             const { latitude, longitude } = location.coords;
 
+            // hardcoded regional school geofence check
             const isWithinZone = 
                 latitude >= -6.23 && latitude <= -6.19 && 
                 longitude >= 106.79 && longitude <= 106.82;
@@ -164,6 +167,7 @@ export default function EarthquakeReadyScreen() {
                 where("ActivityID", "==", ACTIVITY_ID)
             );
             
+            // fetch counts to dynamically increment next trial number
             const querySnapshot = await getDocs(q);
             const nextTrialNumber = querySnapshot.size + 1;
 
@@ -186,14 +190,13 @@ export default function EarthquakeReadyScreen() {
         }
     };
 
-    // --- 3. DYNAMIC CHECKLIST & READINESS PROGRESS METRICS ---
     const toggleMaterial = (key: keyof typeof materialsChecked) => {
         LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
         setMaterialsChecked(prev => ({ ...prev, [key]: !prev[key] }));
     };
 
     const allMaterialsSelected = Object.values(materialsChecked).every(Boolean);
-    const isSensorVerified = gForce > VIBRATION_THRESHOLD;
+    const isSensorVerified = hasTriggeredOnce;
     const allRequirementsMet = allMaterialsSelected && isSensorVerified && isUserPrepared && isSafeSpace;
     
     const completedTasks = [
@@ -206,6 +209,7 @@ export default function EarthquakeReadyScreen() {
     const progressPercent = (completedTasks / 4) * 100;
 
     useEffect(() => {
+        // fire spring animations natively on update shifts
         LayoutAnimation.configureNext(LayoutAnimation.Presets.spring);
     }, [completedTasks]);
 
@@ -218,11 +222,9 @@ export default function EarthquakeReadyScreen() {
     }
 
     return (
-        /* Dynamic Theme Background Image Swap */
         <ImageBackground source={currentTheme.backgroundImage} style={styles.background}>
             <Stack.Screen options={{ headerShown: false }} />
             
-            {/* --- TOP BAR --- */}
             <View style={styles.headerWrapper}>
                 <SafeAreaView edges={['top']}>
                     <View style={styles.topBar}>
@@ -249,13 +251,11 @@ export default function EarthquakeReadyScreen() {
             <SafeAreaView style={styles.safeArea} edges={['left', 'right', 'bottom']}>
                 <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.mainScroll}>
                     
-                    {/* Title Section (Dynamic colors applied) */}
                     <View style={styles.titleSection}>
                         <Text style={[styles.phaseTag, { color: currentTheme.textColor }]}>Readiness Phase:</Text>
                         <Text style={[styles.activityName, { color: currentTheme.textColor }]}>{activity?.activityName || "Earthquake-Resistant Structure"}</Text>
                     </View>
 
-                    {/* --- INSTRUCTIONS BOX --- */}
                     <View style={styles.overviewBox}>
                         <View style={styles.overviewTextContainer}>
                             <Text style={styles.instructionHeading}>Instructions:</Text>
@@ -268,11 +268,8 @@ export default function EarthquakeReadyScreen() {
                         </View>
                     </View>
 
-                    {/* Dynamic section heading color applied */}
                     <Text style={[styles.sectionHeadingUnderlined, { color: currentTheme.textColor }]}>Team Readiness Checklist:</Text>
 
-                    {/* --- CHECK 1: PHYSICAL MATERIALS NESTED CHECKLIST --- */}
-                    {/* Kept static white box for checklist card visibility */}
                     <View style={[styles.checkItem, styles.whiteCheckItem]}>
                         <View style={styles.checkHeader}>
                             <Ionicons 
@@ -310,7 +307,6 @@ export default function EarthquakeReadyScreen() {
                         </View>
                     </View>
 
-                    {/* Check 2: Vibration Sensor Check (Dynamic borders & colors applied) */}
                     <View style={[styles.checkItem, { borderColor: isDarkMode ? currentTheme.textColor : '#DDD' }]}>
                         <View style={styles.checkHeader}>
                             <Ionicons 
@@ -326,7 +322,6 @@ export default function EarthquakeReadyScreen() {
                         </View>
                     </View>
 
-                    {/* Check 3: User Prepared (Dynamic borders & colors applied) */}
                     <TouchableOpacity style={[styles.checkItem, { borderColor: isDarkMode ? currentTheme.textColor : '#DDD' }]} onPress={() => setIsUserPrepared(!isUserPrepared)}>
                         <View style={styles.checkHeader}>
                             <Ionicons name={isUserPrepared ? "checkbox" : "square-outline"} size={24} color={isUserPrepared ? "#00E5FF" : currentTheme.textColor} />
@@ -334,7 +329,6 @@ export default function EarthquakeReadyScreen() {
                         </View>
                     </TouchableOpacity>
 
-                    {/* Check 4: Safe Space Requirement (Dynamic borders & colors applied) */}
                     <TouchableOpacity style={[styles.checkItem, { borderColor: isDarkMode ? currentTheme.textColor : '#DDD' }]} onPress={() => setIsSafeSpace(!isSafeSpace)}>
                         <View style={styles.checkHeader}>
                             <Ionicons name={isSafeSpace ? "checkbox" : "square-outline"} size={24} color={isSafeSpace ? "#00E5FF" : currentTheme.textColor} />
@@ -365,6 +359,7 @@ export default function EarthquakeReadyScreen() {
     );
 }
 
+// ─── Styles ───────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
     background: { flex: 1 },
     safeArea: { flex: 1 },
