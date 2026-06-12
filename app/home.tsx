@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { requestTrackingPermissionsAsync } from 'expo-tracking-transparency';
+// import { requestTrackingPermissionsAsync } from 'expo-tracking-transparency';
 import React, { useEffect, useRef, useState } from 'react';
 import {
     ActivityIndicator,
@@ -16,7 +16,7 @@ import {
     TouchableOpacity,
     View
 } from 'react-native';
-import { BannerAd, BannerAdSize, TestIds } from 'react-native-google-mobile-ads';
+// import { BannerAd, BannerAdSize, TestIds } from 'react-native-google-mobile-ads';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { getAuth } from 'firebase/auth';
@@ -41,7 +41,7 @@ import { useTheme } from '../theme/theme_context';
 const { width } = Dimensions.get('window');
 
 // Production safety toggle constant
-const adUnitId = __DEV__ ? TestIds.BANNER : 'ca-app-pub-6302758879500147/5037542552';
+// const adUnitId = __DEV__ ? TestIds.BANNER : 'ca-app-pub-6302758879500147/5037542552';
 
 let globalHasShownWelcome = false;
 
@@ -133,32 +133,32 @@ export default function HomeScreen() {
     const [timeLeft, setTimeLeft] = useState("");
     const [expandedId, setExpandedId] = useState<string | null>(null);
     const [attemptedCount, setAttemptedCount] = useState(0);
-    const [isAdReady, setIsAdReady] = useState(false);
+    // const [isAdReady, setIsAdReady] = useState(false);
 
     const notificationY = useRef(new Animated.Value(-120)).current;
     const notificationOpacity = useRef(new Animated.Value(0)).current;
 
     // Combined tracking prompt handling and layout buffer sequence
-    useEffect(() => {
-        const requestTracking = async () => {
-            if (Platform.OS === 'ios') {
-                setTimeout(async () => {
-                    try {
-                        const { status } = await requestTrackingPermissionsAsync();
-                        console.log('App Tracking Transparency Status:', status);
-                    } catch (error) {
-                        console.error('Error requesting App Tracking Transparency context:', error);
-                    } finally {
-                        // Safely activate the ad component structure after native layout settles
-                        setIsAdReady(true);
-                    }
-                }, 1500);
-            } else {
-                setIsAdReady(true);
-            }
-        };
-        requestTracking();
-    }, []);
+    // useEffect(() => {
+    //     const requestTracking = async () => {
+    //         if (Platform.OS === 'ios') {
+    //             setTimeout(async () => {
+    //                 try {
+    //                     const { status } = await requestTrackingPermissionsAsync();
+    //                     console.log('App Tracking Transparency Status:', status);
+    //                 } catch (error) {
+    //                     console.error('Error requesting App Tracking Transparency context:', error);
+    //                 } finally {
+    //                     // Safely activate the ad component structure after native layout settles
+    //                     setIsAdReady(true);
+    //                 }
+    //             }, 1500);
+    //         } else {
+    //             setIsAdReady(true);
+    //         }
+    //     };
+    //     requestTracking();
+    // }, []);
 
     useEffect(() => {
         const fetchFullProfile = async () => {
@@ -486,7 +486,7 @@ export default function HomeScreen() {
                         ))}
                     </ScrollView>
 
-                    {isAdReady && (
+                    {/* {isAdReady && (
                         <View style={styles.adContainer}>
                             <BannerAd
                                 unitId={adUnitId}
@@ -497,7 +497,7 @@ export default function HomeScreen() {
                                 onAdFailedToLoad={(error) => console.log('Ad banner load failure: ', error)}
                             />
                         </View>
-                    )}
+                    )} */}
                 </ScrollView>
 
                 <View style={styles.bottomTabs}>
@@ -571,5 +571,5 @@ const styles = StyleSheet.create({
     notificationBadge: { backgroundColor: '#4FC3F7', paddingHorizontal: 6, paddingVertical: 3, borderRadius: 6, flexDirection: 'row', alignItems: 'center', marginRight: 10 },
     notificationBadgeText: { color: '#FFF', fontSize: 9, fontFamily: 'BalsamiqSans_700Bold', marginLeft: 3 },
     notificationText: { color: '#FFF', fontSize: 13, fontFamily: 'BalsamiqSans_400Regular', flex: 1 },
-    adContainer: { alignItems: 'center', marginVertical: 10, width: '100%' },
+    // adContainer: { alignItems: 'center', marginVertical: 10, width: '100%' },
 });
