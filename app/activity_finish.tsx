@@ -59,8 +59,7 @@ const { width } = Dimensions.get('window');
 
 // --- CLOUDINARY CONFIGURATION CREDENTIALS ---
 const CLOUDINARY_CLOUD_NAME = process.env.EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME;
-const CLOUDINARY_API_KEY = process.env.CLOUDINARY_API_KEY;
-const CLOUDINARY_API_SECRET = process.env.CLOUDINARY_API_SECRET;
+const CLOUDINARY_UPLOAD_PRESET = process.env.EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET;
 
 // --- PROFANITY BLOCKLIST ---
 const BANNED_WORDS = [
@@ -103,6 +102,7 @@ export default function ActivityFinishScreen() {
     const [loading, setLoading] = useState(true);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [attemptId, setAttemptId] = useState<string | null>(null); 
+    const [trialNumber, setTrialNumber] = useState<number>(1);
     const [imageUris, setImageUris] = useState<string[]>([]); 
     const [reflectionText, setReflectionText] = useState('');
     const [activityDiscussion, setActivityDiscussion] = useState('');
@@ -132,8 +132,15 @@ export default function ActivityFinishScreen() {
                 }
 
                 let activeSessionId = routeAttemptId || null;
+                let currentTrialNum = 1;
 
-                if (!activeSessionId) {
+                if (routeAttemptId) {
+                    const attemptDocRef = doc(db_cloud, "FC_Attempt", routeAttemptId);
+                    const attemptSnap = await getDoc(attemptDocRef);
+                    if (attemptSnap.exists()) {
+                        currentTrialNum = attemptSnap.data().trialNumber || 1;
+                    }
+                } else {
                     const auth = getAuth();
                     const user = auth.currentUser;
 
@@ -151,7 +158,9 @@ export default function ActivityFinishScreen() {
                                 );
                                 const querySnapshot = await getDocs(q);
                                 if (!querySnapshot.empty) {
-                                    activeSessionId = querySnapshot.docs[0].id;
+                                    const attemptDoc = querySnapshot.docs[0];
+                                    activeSessionId = attemptDoc.id;
+                                    currentTrialNum = attemptDoc.data().trialNumber || 1;
                                 }
                             }
                         }
@@ -160,6 +169,7 @@ export default function ActivityFinishScreen() {
 
                 if (activeSessionId) {
                     setAttemptId(activeSessionId);
+                    setTrialNumber(currentTrialNum);
                     loadLocalTelemetryMetrics(activeSessionId);
                 } else {
                     console.warn("No tracking active attempt document found for this session.");
@@ -264,24 +274,13 @@ export default function ActivityFinishScreen() {
         return true;
     };
 
-    // --- CLOUDINARY SUBMIT LOGIC ---
-    const handleFinish = async () => {
-        if (!attemptId) {
-            return Alert.alert("Session Error", "Active tracking record missing. Cannot attach files to this experiment track.");
-        }
-        if (imageUris.length === 0) {
-            return Alert.alert("Required", "Please upload at least one experiment sketch before finishing.");
-        }
-        if (!validateReflection(reflectionText)) {
-            return; 
-        }
-
+    // --- EXECUTE BACKEND TRANSACTION PIPELINE ---
+    const executeUploadPipeline = async () => {
         setIsSubmitting(true);
         const cloudUrls: string[] = [];
 
         try {
-            console.log(`Processing multi-upload sequential pipeline to Cloudinary via HTTP Basic Auth...`);
-            const basicAuthToken = btoa(`${CLOUDINARY_API_KEY}:${CLOUDINARY_API_SECRET}`);
+            console.log(`Processing multi-upload sequential pipeline to Cloudinary via Unsigned Preset...`);
 
             for (let i = 0; i < imageUris.length; i++) {
                 const currentUri = imageUris[i];
@@ -293,11 +292,14 @@ export default function ActivityFinishScreen() {
                     name: `sketch_${attemptId}_slot${i}.jpg`,
                 } as any);
 
+                if (CLOUDINARY_UPLOAD_PRESET) {
+                    formData.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
+                }
+
                 const response = await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`, {
                     method: 'POST',
                     body: formData,
                     headers: {
-                        'Authorization': `Basic ${basicAuthToken}`,
                         'Content-Type': 'multipart/form-data',
                     },
                 });
@@ -312,7 +314,7 @@ export default function ActivityFinishScreen() {
                 }
             }
 
-            const targetAttemptRef = doc(db_cloud, "FC_Attempt", attemptId);
+            const targetAttemptRef = doc(db_cloud, "FC_Attempt", attemptId!);
             await updateDoc(targetAttemptRef, {
                 VideoURL: cloudUrls, 
                 studentReflection: reflectionText.trim()
@@ -330,6 +332,30 @@ export default function ActivityFinishScreen() {
         } finally {
             setIsSubmitting(false);
         }
+    };
+
+    // --- INTERCEPT AND INFORM STUDENT ABOUT TRIAL ALLOCATION CONTROLS ---
+    const handleFinish = () => {
+        if (!attemptId) {
+            return Alert.alert("Session Error", "Active tracking record missing. Cannot attach files to this experiment track.");
+        }
+        if (imageUris.length === 0) {
+            return Alert.alert("Required", "Please upload at least one experiment sketch before finishing.");
+        }
+        if (!validateReflection(reflectionText)) {
+            return; 
+        }
+
+        const trialsLeft = Math.max(0, 3 - trialNumber);
+        const ordinalString = trialNumber === 1 ? "1st" : trialNumber === 2 ? "2nd" : trialNumber === 3 ? "3rd" : `${trialNumber}th`;
+
+        Alert.alert(
+            "Trial Progress",
+            `This is your ${ordinalString} trial. You have ${trialsLeft} trial${trialsLeft === 1 ? '' : 's'} left.`,
+            [
+                { text: "OK", onPress: executeUploadPipeline }
+            ]
+        );
     };
 
     // --- DYNAMIC DASHBOARD COMPONENT MATRIX GENERATOR ---
@@ -559,7 +585,7 @@ export default function ActivityFinishScreen() {
                         showsVerticalScrollIndicator={false}
                     >
                         
-                        {/* Header Titles (Dynamic layout text styles applied) */}
+                        {/* Header Titles */}
                         <View style={styles.titleSection}>
                             <Text style={[styles.subLabel, { color: currentTheme.textColor }]}>Result & Analysis</Text>
                             <Text style={[styles.mainTitle, { color: currentTheme.textColor }]}>{activityTitle || "STEMM Lab Challenge"}</Text>
@@ -617,7 +643,7 @@ export default function ActivityFinishScreen() {
                             </ScrollView>
                         </View>
 
-                        {/* --- NOTEBOOK STYLE REFLECTION BOX (Dynamic prompt text applied) --- */}
+                        {/* --- NOTEBOOK STYLE REFLECTION BOX --- */}
                         <View style={styles.reflectionSection}>
                             <Text style={[styles.promptText, { color: currentTheme.textColor }]}>What did you learn from this experiment?</Text>
                             
@@ -685,7 +711,6 @@ const styles = StyleSheet.create({
     discussionScroll: { flex: 1 },
     discussionText: { fontFamily: 'BalsamiqSans_400Regular', fontSize: 13, color: '#333', lineHeight: 17 },
 
-    // --- SCIENTIST LOCAL TELEMETRY DASHBOARD STYLE ARCHITECTURE ---
     dashboardCard: { width: '100%', backgroundColor: '#000000', borderRadius: 14, padding: 12, marginVertical: 6, borderWidth: 1.5, borderColor: '#333', elevation: 4, zIndex: 5 },
     dashboardHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
     dashboardTitle: { fontFamily: 'BalsamiqSans_700Bold', fontSize: 11, color: '#00E5FF', marginLeft: 6, letterSpacing: 0.5 },

@@ -11,10 +11,13 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.michaelbisb27.stemmlab",
-      "googleServicesFile": "./GoogleService-Info.plist"
+      "googleServicesFile": "./GoogleService-Info.plist",
+      "infoPlist": {
+        "NSUserTrackingUsageDescription": "This identifier will be used to deliver personalized ads to you."
+      }
     },
     "android": {
-      "bundleIdentifier": "com.anonymous.stemm_lab",
+      "package": "com.michael_bisb27.STEMM_Lab",
       "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
@@ -23,8 +26,7 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false,
-      "package": "com.michael_bisb27.STEMM_Lab"
+      "predictiveBackGestureEnabled": false
     },
     "web": {
       "output": "static",
@@ -54,6 +56,13 @@
       "@react-native-firebase/crashlytics",
       "@react-native-firebase/perf",
       [
+        "react-native-google-mobile-ads",
+        {
+          "androidAppId": "ca-app-pub-3940256099942544~3347511713",
+          "iosAppId": "ca-app-pub-3940256099942544~1458002511"
+        }
+      ],
+      [
         "expo-build-properties",
         {
           "ios": {
@@ -62,7 +71,8 @@
           }
         }
       ],
-      "./plugins/withNonModularHeaders"
+      "./plugins/withNonModularHeaders",
+      "expo-tracking-transparency"
     ],
     "experiments": {
       "typedRoutes": true,
@@ -72,11 +82,11 @@
       "router": {},
       "eas": {
         "projectId": "bc99b8ba-1145-4b59-b3d3-a940075b00bc"
+      },
+      "react-native-google-mobile-ads": {
+        "android_app_id": "ca-app-pub-3940256099942544~3347511713",
+        "ios_app_id": "ca-app-pub-3940256099942544~1458002511"
       }
     }
-  },
-  "react-native-google-mobile-ads": {
-          "androidAppId": "ca-app-pub-3940256099942544~3347511713",
-          "iosAppId": "ca-app-pub-3940256099942544~1458002511"
-        }
+  }
 }

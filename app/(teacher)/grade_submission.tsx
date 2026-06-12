@@ -18,7 +18,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { collection, doc, getDoc, getDocs, query, setDoc, Timestamp, where } from 'firebase/firestore';
+import { collection, deleteDoc, doc, getDoc, getDocs, query, setDoc, Timestamp, where } from 'firebase/firestore';
 import { db_cloud } from '../../services/firebase_config';
 
 import { themes } from '../../theme/theme';
@@ -207,6 +207,77 @@ export default function GradeSubmissionScreen() {
         }
     };
 
+    const handleDeleteAttempt = async () => {
+        Alert.alert(
+            "Delete Attempt Entry",
+            "Are you absolutely sure you want to completely erase this evaluation entry and submission trace? This cannot be undone.",
+            [
+                { text: "Cancel", style: "cancel" },
+                {
+                    text: "Delete Document",
+                    style: "destructive",
+                    onPress: async () => {
+                        try {
+                            setSubmitting(true);
+
+                            // 1. Delete associated data from FC_Scoring_Result mapping
+                            const scoringResultCollection = collection(db_cloud, "FC_Scoring_Result");
+                            const scoreQuery = query(scoringResultCollection, where("AttemptID", "==", attemptId));
+                            const scoreSnapshot = await getDocs(scoreQuery);
+                            
+                            for (const scoreDoc of scoreSnapshot.docs) {
+                                await deleteDoc(doc(db_cloud, "FC_Scoring_Result", scoreDoc.id));
+                            }
+
+                            // 2. Delete target entry from FC_Attempt context
+                            const attemptRef = doc(db_cloud, "FC_Attempt", attemptId as string);
+                            await deleteDoc(attemptRef);
+
+                            // 3. Atomically recalculate leaderboard metadata matrix for remaining activities
+                            if (attempt?.TeamID) {
+                                const allTeamScoresQuery = query(scoringResultCollection, where("TeamID", "==", attempt.TeamID));
+                                const allScoresSnapshot = await getDocs(allTeamScoresQuery);
+                                
+                                const totalAttemptsCount = allScoresSnapshot.size;
+                                const bestScoresPerActivity: Record<string, number> = {};
+
+                                allScoresSnapshot.forEach((scoreDoc) => {
+                                    const scoreData = scoreDoc.data();
+                                    const activityId = scoreData.ActivityID || "unknown_activity";
+                                    const points = scoreData.pointsEarned || 0;
+
+                                    if (!bestScoresPerActivity[activityId] || points > bestScoresPerActivity[activityId]) {
+                                        bestScoresPerActivity[activityId] = points;
+                                    }
+                                });
+
+                                let finalLeaderboardScore = 0;
+                                Object.values(bestScoresPerActivity).forEach((bestScore) => {
+                                    finalLeaderboardScore += bestScore;
+                                });
+
+                                const teamRef = doc(db_cloud, "MS_Team", attempt.TeamID);
+                                await setDoc(teamRef, {
+                                    teamScore: finalLeaderboardScore,
+                                    totalAttempts: totalAttemptsCount
+                                }, { merge: true });
+                            }
+
+                            Alert.alert("Success", "Submission records parsed and dropped seamlessly.", [
+                                { text: "Dismiss", onPress: () => router.replace('/(teacher)/home') }
+                            ]);
+                        } catch (error) {
+                            console.error("Firestore destruction process failure:", error);
+                            Alert.alert("Delete Error", "Could not purge database elements safely.");
+                        } finally {
+                            setSubmitting(false);
+                        }
+                    }
+                }
+            ]
+        );
+    };
+
     const getResolvedActivityName = (id: string) => {
         if (id === "Qvn4OR5l7pf9pCXB2pkq" || id === "eng1") return "Parachute Drop Challenge";
         if (id === "eng2") return "Sound Pollution Hunter";
@@ -383,6 +454,22 @@ export default function GradeSubmissionScreen() {
                                 </>
                             )}
                         </TouchableOpacity>
+
+                        <TouchableOpacity 
+                            style={[styles.deleteAttemptButton, submitting && styles.buttonActionDisabled]}
+                            onPress={handleDeleteAttempt}
+                            disabled={submitting}
+                            activeOpacity={0.8}
+                        >
+                            {submitting ? (
+                                <ActivityIndicator color="#FF3B30" />
+                            ) : (
+                                <>
+                                    <Ionicons name="trash-outline" size={20} color="#FF3B30" />
+                                    <Text style={styles.deleteAttemptButtonText}>Delete Attempt</Text>
+                                </>
+                            )}
+                        </TouchableOpacity>
                     </View>
                 </ScrollView>
 
@@ -511,8 +598,10 @@ const styles = StyleSheet.create({
     scoringSubtitleLabel: { fontFamily: 'BalsamiqSans_400Regular', fontSize: 11, color: '#777', marginTop: 2, lineHeight: 14 },
     scoreNumericalInput: { flex: 0.22, backgroundColor: '#F5F5F5', borderRadius: 12, borderWidth: 1.5, borderColor: '#000', height: 50, textAlign: 'center', fontSize: 18, fontFamily: 'BalsamiqSans_700Bold', color: '#000' },
     publishMetricsButton: { backgroundColor: '#00E5FF', flexDirection: 'row', height: 50, borderRadius: 25, borderWidth: 1.5, borderColor: '#000', justifyContent: 'center', alignItems: 'center', gap: 8, marginTop: 24, elevation: 3 },
+    deleteAttemptButton: { backgroundColor: '#FFEBEB', flexDirection: 'row', height: 50, borderRadius: 25, borderWidth: 1.5, borderColor: '#FF3B30', justifyContent: 'center', alignItems: 'center', gap: 8, marginTop: 14, elevation: 3 },
     buttonActionDisabled: { opacity: 0.5 },
     publishMetricsButtonText: { fontFamily: 'BalsamiqSans_700Bold', fontSize: 15, color: '#000' },
+    deleteAttemptButtonText: { fontFamily: 'BalsamiqSans_700Bold', fontSize: 15, color: '#FF3B30' },
     bottomTabs: { position: 'absolute', bottom: 0, flexDirection: 'row', backgroundColor: '#FFFFFF', height: 90, width: '100%', justifyContent: 'center', alignItems: 'center', borderTopWidth: 1, borderColor: '#EEEEEE', paddingBottom: 15 },
     tabItem: { alignItems: 'center', marginHorizontal: 40 },
     tabIcon: { width: 26, height: 26, tintColor: '#A0A0A0' },
