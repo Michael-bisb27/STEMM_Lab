@@ -59,6 +59,7 @@ export default function HandFanReadyScreen() {
     const [isStarting, setIsStarting] = useState(false);
     const [teamMemberCount, setTeamMemberCount] = useState(0);
     const [teamId, setTeamId] = useState<string | null>(null);
+    const [trialCount, setTrialCount] = useState(0);
     
     const [materialsChecked, setMaterialsChecked] = useState({
         paperCardboard: false,
@@ -95,6 +96,16 @@ export default function HandFanReadyScreen() {
                             );
                             const querySnapshot = await getDocs(studentsQuery);
                             setTeamMemberCount(querySnapshot.size);
+
+                            // fetch current trial count from attempts
+                            const attemptRef = collection(db_cloud, "FC_Attempt");
+                            const q = query(
+                                attemptRef, 
+                                where("TeamID", "==", tId), 
+                                where("ActivityID", "==", ACTIVITY_ID)
+                            );
+                            const attemptSnapshot = await getDocs(q);
+                            setTrialCount(attemptSnapshot.size);
                         }
                     }
                 }
@@ -110,57 +121,66 @@ export default function HandFanReadyScreen() {
 
     const handleStartChallenge = async () => {
         if (!teamId) return Alert.alert("Error", "No Team Session found.");
-        
-        setIsStarting(true);
-        try {
-            let { status } = await Location.requestForegroundPermissionsAsync();
-            if (status !== 'granted') {
-                Alert.alert("Permission Denied", "GPS tracking permissions are required to log activity location.");
+        if (trialCount >= 3) return Alert.alert("Out of Trials", "Your team has used all available trials.");
+
+        const proceedWithChallenge = async () => {
+            setIsStarting(true);
+            try {
+                let { status } = await Location.requestForegroundPermissionsAsync();
+                if (status !== 'granted') {
+                    Alert.alert("Permission Denied", "GPS tracking permissions are required to log activity location.");
+                    setIsStarting(false);
+                    return;
+                }
+
+                const location = await Location.getCurrentPositionAsync({});
+                const { latitude, longitude } = location.coords;
+
+                // hardcoded regional school geofence check
+                const isWithinZone = 
+                    latitude >= -6.23 && latitude <= -6.19 && 
+                    longitude >= 106.79 && longitude <= 106.82;
+
+                if (!isWithinZone) {
+                    Alert.alert("Outside Zone", "This activity must be performed within the Senayan/Sudirman school area.");
+                    setIsStarting(false);
+                    return;
+                }
+
+                const attemptRef = collection(db_cloud, "FC_Attempt");
+                const nextTrialNumber = trialCount + 1;
+
+                await addDoc(attemptRef, {
+                    ActivityID: ACTIVITY_ID,
+                    GPS_Coordinates: new GeoPoint(latitude, longitude),
+                    TeamID: teamId,
+                    VideoURL: "",
+                    attemptAt: Timestamp.now(),
+                    trialNumber: nextTrialNumber
+                });
+
+                router.push('/fan_activity');
+                
+            } catch (error) {
+                console.error("Firestore Write Error:", error);
+                Alert.alert("Error", "Could not record attempt. Check your internet connection.");
+            } finally {
                 setIsStarting(false);
-                return;
             }
+        };
 
-            const location = await Location.getCurrentPositionAsync({});
-            const { latitude, longitude } = location.coords;
-
-            // hardcoded regional school geofence check
-            const isWithinZone = 
-                latitude >= -6.23 && latitude <= -6.19 && 
-                longitude >= 106.79 && longitude <= 106.82;
-
-            if (!isWithinZone) {
-                Alert.alert("Outside Zone", "This activity must be performed within the Senayan/Sudirman school area.");
-                setIsStarting(false);
-                return;
-            }
-
-            const attemptRef = collection(db_cloud, "FC_Attempt");
-            const q = query(
-                attemptRef, 
-                where("TeamID", "==", teamId), 
-                where("ActivityID", "==", ACTIVITY_ID)
+        // Pop up warning constraint before entering final trial
+        if (trialCount === 2) {
+            Alert.alert(
+                "Final Trial Warning",
+                "You only have one trial left, make sure you get the best accuracy and work score",
+                [
+                    { text: "Cancel", style: "cancel" },
+                    { text: "Continue", onPress: () => proceedWithChallenge() }
+                ]
             );
-            
-            // fetch counts to dynamically increment next trial number
-            const querySnapshot = await getDocs(q);
-            const nextTrialNumber = querySnapshot.size + 1;
-
-            await addDoc(attemptRef, {
-                ActivityID: ACTIVITY_ID,
-                GPS_Coordinates: new GeoPoint(latitude, longitude),
-                TeamID: teamId,
-                VideoURL: "",
-                attemptAt: Timestamp.now(),
-                trialNumber: nextTrialNumber
-            });
-
-            router.push('/fan_activity');
-            
-        } catch (error) {
-            console.error("Firestore Write Error:", error);
-            Alert.alert("Error", "Could not record attempt. Check your internet connection.");
-        } finally {
-            setIsStarting(false);
+        } else {
+            await proceedWithChallenge();
         }
     };
 
@@ -226,7 +246,12 @@ export default function HandFanReadyScreen() {
                 <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.mainScroll}>
                     
                     <View style={styles.titleSection}>
-                        <Text style={[styles.phaseTag, { color: currentTheme.textColor }]}>Readiness Phase:</Text>
+                        <View style={styles.titleRow}>
+                            <Text style={[styles.phaseTag, { color: currentTheme.textColor }]}>Readiness Phase:</Text>
+                            <Text style={[styles.trialBadge, { color: trialCount >= 3 ? '#FF3B30' : '#00E5FF' }]}>
+                                Trial {trialCount}/3
+                            </Text>
+                        </View>
                         <Text style={[styles.activityName, { color: currentTheme.textColor }]}>{activity?.activityName || "Hand Fan Challenge"}</Text>
                     </View>
 
@@ -293,11 +318,21 @@ export default function HandFanReadyScreen() {
 
                     {allRequirementsMet && (
                         <TouchableOpacity 
-                            style={[styles.startChallengeBtn, isStarting && { opacity: 0.7 }]}
+                            style={[
+                                styles.startChallengeBtn, 
+                                isStarting && { opacity: 0.7 },
+                                trialCount >= 3 && styles.disabledTrialBtn
+                            ]}
                             onPress={handleStartChallenge}
-                            disabled={isStarting}
+                            disabled={isStarting || trialCount >= 3}
                         >
-                            {isStarting ? <ActivityIndicator color="#000" /> : <Text style={styles.startChallengeText}>Start Challenge</Text>}
+                            {isStarting ? (
+                                <ActivityIndicator color="#000" />
+                            ) : (
+                                <Text style={[styles.startChallengeText, trialCount >= 3 && { color: '#FFF' }]}>
+                                    {trialCount >= 3 ? "Out of Trials" : "Start Challenge"}
+                                </Text>
+                            )}
                         </TouchableOpacity>
                     )}
 
@@ -328,6 +363,8 @@ const styles = StyleSheet.create({
     progressFill: { height: '100%', backgroundColor: '#4FC3F7', borderRadius: 20 },
     progressText: { position: 'absolute', width: '100%', textAlign: 'center', fontFamily: 'BalsamiqSans_400Regular', fontSize: 13 },
     titleSection: { marginTop: 15, marginBottom: 20 },
+    titleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+    trialBadge: { fontFamily: 'BalsamiqSans_700Bold', fontSize: 16 },
     phaseTag: { fontFamily: 'BalsamiqSans_400Regular', fontSize: 14, fontStyle: 'italic' },
     activityName: { fontFamily: 'BalsamiqSans_700Bold', fontSize: 20 },
     overviewBox: { borderWidth: 1.5, borderColor: '#000', borderRadius: 20, padding: 15, backgroundColor: 'white', marginBottom: 20 },
@@ -346,6 +383,7 @@ const styles = StyleSheet.create({
     subCheckLabel: { fontFamily: 'BalsamiqSans_400Regular', fontSize: 14, color: '#333' },
     
     startChallengeBtn: { backgroundColor: '#4FC3F7', borderRadius: 25, paddingVertical: 12, alignItems: 'center', marginTop: 10, marginBottom: 20 },
+    disabledTrialBtn: { backgroundColor: '#FF3B30', borderColor: '#D32F2F', borderWidth: 1 },
     startChallengeText: { fontFamily: 'BalsamiqSans_700Bold', fontSize: 20, color: '#000' },
     bottomActionArea: { position: 'absolute', bottom: 0, backgroundColor: '#FFFFFF', height: 90, width: '100%', justifyContent: 'center', alignItems: 'center', borderTopWidth: 1, borderColor: '#EEEEEE' },
     backButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: '#E0E0E0', paddingHorizontal: 30, paddingVertical: 12, borderRadius: 25, borderWidth: 1, borderColor: '#AAA' },
