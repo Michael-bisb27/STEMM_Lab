@@ -4,8 +4,11 @@ import {
     useFonts,
 } from '@expo-google-fonts/balsamiq-sans';
 import { Ionicons } from '@expo/vector-icons';
+import { CameraView, useCameraPermissions } from 'expo-camera';
+import * as MediaLibrary from 'expo-media-library';
 import { Stack, useRouter } from 'expo-router';
 import { Accelerometer } from 'expo-sensors';
+import { useVideoPlayer, VideoView } from 'expo-video';
 import { getAuth } from 'firebase/auth';
 import {
     addDoc,
@@ -49,17 +52,16 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
     UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
-// ─── Per-screen content ───────────────────────────────────────────────────────
 export default function ParachuteActivityScreen() {
     const router = useRouter();
     const [fontsLoaded] = useFonts({ BalsamiqSans_400Regular, BalsamiqSans_700Bold });
-
     const { isDarkMode } = useTheme();
     const currentTheme = isDarkMode ? themes.dark : themes.light;
 
+    // ─── Core Activity States ───────────────────────────────────────────
     const [actionPhase, setActionPhase] = useState<1 | 2 | 3>(1); 
     const [trial, setTrial] = useState<1 | 2 | 3>(1); 
-    const [sessionState, setSessionState] = useState<'idle' | 'falling' | 'impact_captured'>('idle');
+    const [sessionState, setSessionState] = useState<'idle' | 'falling' | 'reviewing' | 'impact_captured'>('idle');
     const [dropTime, setDropTime] = useState<number>(0);
     const [showFormulaSheet, setShowFormulaSheet] = useState<boolean>(false);
     
@@ -71,6 +73,12 @@ export default function ParachuteActivityScreen() {
     const [maxGForce, setMaxGForce] = useState<number>(1.0);
     const [liveG, setLiveG] = useState<number>(1.0);
     
+    // ─── Camera & Video Review States ────────────────────────────────────
+    const [cameraPermission, requestCameraPermission] = useCameraPermissions();
+    const [mediaLibraryPermission, requestMediaLibraryPermission] = MediaLibrary.usePermissions();
+    const [videoUri, setVideoUri] = useState<string | null>(null);
+    const [reviewTime, setReviewTime] = useState<number>(0);
+
     const [toastMessage, setToastMessage] = useState<string>('');
     const toastOpacity = useRef(new Animated.Value(0)).current;
     
@@ -84,10 +92,17 @@ export default function ParachuteActivityScreen() {
     const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const startTimestamp = useRef<number>(0);
     const subscription = useRef<any>(null);
+    const cameraRef = useRef<CameraView>(null);
+    const isRecordingRef = useRef<boolean>(false);
+
+    // Instantiate modern native expo-video player interface
+    const player = useVideoPlayer(videoUri || '', (p) => {
+        p.loop = false;
+        p.muted = true;
+    });
 
     const checkDetoxBypass = (): boolean => {
         try {
-            // inline require stops bundle crash if package isn't linked yet
             const { LaunchArguments } = require('react-native-launch-arguments');
             const args = LaunchArguments.value();
             return args && args.detoxSkipAuth === true;
@@ -97,13 +112,30 @@ export default function ParachuteActivityScreen() {
     };
 
     const showToast = (msg: string) => {
-      setToastMessage(msg); 
-      Animated.sequence([
-          Animated.timing(toastOpacity, { toValue: 1, duration: 300, useNativeDriver: true }),
-          Animated.delay(2500),
-          Animated.timing(toastOpacity, { toValue: 0, duration: 300, useNativeDriver: true })
-      ]).start(() => setToastMessage(''));
-  };
+        setToastMessage(msg); 
+        Animated.sequence([
+            Animated.timing(toastOpacity, { toValue: 1, duration: 300, useNativeDriver: true }),
+            Animated.delay(2500),
+            Animated.timing(toastOpacity, { toValue: 0, duration: 300, useNativeDriver: true })
+        ]).start(() => setToastMessage(''));
+    };
+
+    // ─── Dynamic Video Uri Swap Binding ──────────────────────────────────
+    useEffect(() => {
+        if (videoUri && player) {
+            player.replace(videoUri);
+            player.currentTime = 0;
+        }
+    }, [videoUri, player]);
+
+    useEffect(() => {
+        (async () => {
+            if (!checkDetoxBypass()) {
+                await requestCameraPermission();
+                await requestMediaLibraryPermission();
+            }
+        })();
+    }, []);
 
     useEffect(() => {
         if (sessionState !== 'falling') {
@@ -114,7 +146,6 @@ export default function ParachuteActivityScreen() {
             return;
         }
 
-        // speed up sensor polls during live falling phase
         Accelerometer.setUpdateInterval(50); 
         
         subscription.current = Accelerometer.addListener(data => {
@@ -125,7 +156,6 @@ export default function ParachuteActivityScreen() {
                 setMaxGForce(totalG);
             }
             
-            // auto trigger catch on physical impact spike thresholds
             if (totalG > 4.5) {
                 handleImpactTrigger();
             }
@@ -139,7 +169,6 @@ export default function ParachuteActivityScreen() {
     useEffect(() => {
         const fetchSessionMetadata = async () => {
             try {
-                // bypass auth check routines if running under detox e2e arguments
                 if (checkDetoxBypass()) {
                     setTeamId("DETOX-TEST-TEAM");
                     setLastAttemptId("DETOX-TEST-ATTEMPT");
@@ -155,7 +184,6 @@ export default function ParachuteActivityScreen() {
                         const tId = studentDoc.data().teamID;
                         setTeamId(tId);
 
-                        // fetch most recent setup session context block
                         const qAttempt = query(
                             collection(db_cloud, "FC_Attempt"),
                             where("TeamID", "==", tId),
@@ -178,23 +206,58 @@ export default function ParachuteActivityScreen() {
         fetchSessionMetadata();
     }, []);
 
-    const startDropTracking = () => {
+    // ─── Recording Control Operations ──────────────────────────────────
+    const startDropTracking = async () => {
+        if (!checkDetoxBypass() && (!cameraPermission?.granted || !mediaLibraryPermission?.granted)) {
+            setAlertModal({
+                visible: true,
+                title: "Permissions Required",
+                message: "Camera and Storage system clearance metrics are required to accurately map drops.",
+                type: 'warning'
+            });
+            return;
+        }
+
         LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
         setSessionState('falling');
         setDropTime(0);
+        setReviewTime(0);
+        setVideoUri(null);
         setMaxGForce(1.0);
         startTimestamp.current = Date.now();
         
         timerRef.current = setInterval(() => {
             setDropTime((Date.now() - startTimestamp.current) / 1000);
         }, 10);
+
+        if (cameraRef.current) {
+            try {
+                isRecordingRef.current = true;
+                cameraRef.current.recordAsync({
+                    maxDuration: 15,
+                }).then((file) => {
+                    if (file?.uri) {
+                        setVideoUri(file.uri);
+                    }
+                    isRecordingRef.current = false;
+                }).catch(err => {
+                    console.error("Recording processing drop caught:", err);
+                    isRecordingRef.current = false;
+                });
+            } catch (err) {
+                console.error("Failed initialization sync on camera pipeline:", err);
+            }
+        }
     };
 
-    const handleImpactTrigger = () => {
+    const handleImpactTrigger = async () => {
         if (timerRef.current) clearInterval(timerRef.current);
         
         const airtimeCalculatedMs = Date.now() - startTimestamp.current;
         if (airtimeCalculatedMs < MIN_VALID_FLIGHT_TIME_MS) {
+            if (cameraRef.current && isRecordingRef.current) {
+                try { cameraRef.current.stopRecording(); } catch (_) {}
+            }
             setSessionState('idle');
             setDropTime(0);
             setMaxGForce(1.0);
@@ -202,29 +265,76 @@ export default function ParachuteActivityScreen() {
             setAlertModal({
                 visible: true,
                 title: "Invalid Flight Time Detected",
-                message: "The drop recorded was shorter than 1,2 seconds. Parachutes need proper clearance flight windows to expand canopy walls and break gravitational velocity safely. Please re-run drop execution properly.",
+                message: "The drop recorded was shorter than 1.2 seconds. Parachutes need proper clearance flight windows to expand canopy walls properly.",
                 type: 'warning'
             });
             return;
         }
 
         LayoutAnimation.configureNext(LayoutAnimation.Presets.spring);
-        setSessionState('impact_captured');
-        showToast("Impact Landing Recorded!");
+        
+        if (cameraRef.current && isRecordingRef.current) {
+            try {
+                cameraRef.current.stopRecording();
+            } catch (e) {
+                console.error("Error stopping video stream:", e);
+            }
+        }
+        
+        setSessionState('reviewing');
+        setReviewTime(0);
+        setDropTime(0);
+        showToast("Impact Landing Recorded! Review Footage.");
+    };
+
+    // ─── Frame Step Systems ─────────────────────────────────────────────
+    const stepFrame = (direction: 'forward' | 'backward') => {
+        if (player) {
+            // ~33ms slice represents an exact single-frame segment shift for 30 FPS video
+            const FRAME_TIME_SEC = 0.033; 
+            const currentPos = player.currentTime;
+            
+            const newPos = direction === 'forward' 
+                ? currentPos + FRAME_TIME_SEC 
+                : Math.max(0, currentPos - FRAME_TIME_SEC);
+            
+            player.currentTime = newPos; // Synchronous native call updates UI immediately
+            setReviewTime(newPos);
+            setDropTime(newPos); // Keeps the on-screen timer perfectly synced with manual step frames
+        }
+    };
+
+    const saveLandingFrameVideo = async () => {
+        if (!checkDetoxBypass() && videoUri) {
+            try {
+                await MediaLibrary.saveToLibraryAsync(videoUri);
+            } catch (err) {
+                console.error("Media retention failure:", err);
+                showToast("Hardware caching issue encountered saving video.");
+            }
+        }
 
         try {
-            // save trial run details to local sqlite fallback
             parachuteOps.insertTrial({
                 attempt_id: lastAttemptId || "UNKNOWN",
                 action_phase: actionPhase,
                 trial_number: trial,
-                air_time: airtimeCalculatedMs / 1000,
+                air_time: dropTime,
                 peak_g_force: maxGForce,
                 recorded_at: Date.now()
             });
         } catch (error) {
             console.error("Local caching fallback exception:", error);
         }
+
+        setAlertModal({
+            visible: true,
+            title: "Data Sequence Saved",
+            message: "The current trial video has been cached locally. ⚠️ This has to be submitted in your final evaluation.",
+            type: 'info'
+        });
+
+        setSessionState('impact_captured');
     };
 
     const commitSessionResults = async () => {
@@ -240,7 +350,7 @@ export default function ParachuteActivityScreen() {
                         params: {
                             activityId: ACTIVITY_ID,
                             activityTitle: "Parachute Drop Challenge",
-                            attemptId: lastAttemptId || "UNKNOWN" // pass along to query matching rows in local sqlite later
+                            attemptId: lastAttemptId || "UNKNOWN"
                         }
                     });
                 }, 1000);
@@ -264,7 +374,7 @@ export default function ParachuteActivityScreen() {
                     params: {
                         activityId: ACTIVITY_ID,
                         activityTitle: "Parachute Drop Challenge",
-                        attemptId: lastAttemptId || "UNKNOWN" // pass along to query matching rows in local sqlite later
+                        attemptId: lastAttemptId || "UNKNOWN"
                     }
                 });
             }, 1000);
@@ -273,7 +383,7 @@ export default function ParachuteActivityScreen() {
             setAlertModal({
                 visible: true,
                 title: "Network Synchronization Failure",
-                message: "Unable to pass data parameters across active cloud routes. Verify physical connection matrix channels.",
+                message: "Unable to pass data parameters across active cloud routes.",
                 type: 'error'
             });
             setIsFinishing(false);
@@ -286,6 +396,8 @@ export default function ParachuteActivityScreen() {
             setTrial((trial + 1) as any);
             setSessionState('idle');
             setDropTime(0);
+            setReviewTime(0);
+            setVideoUri(null);
             showToast(`Advanced to Run Iteration #${trial + 1}`);
         } else if (actionPhase < 3) {
             setAlertModal({
@@ -298,6 +410,8 @@ export default function ParachuteActivityScreen() {
             setTrial(1);
             setSessionState('idle');
             setDropTime(0);
+            setReviewTime(0);
+            setVideoUri(null);
         } else {
             commitSessionResults();
         }
@@ -339,7 +453,7 @@ export default function ParachuteActivityScreen() {
                         <Ionicons 
                             name={alertModal.type === 'error' ? "close-circle" : alertModal.type === 'warning' ? "warning" : "information-circle-sharp"} 
                             size={56} 
-                            color={alertModal.type === 'error' ? "#FF5252" : alertModal.type === 'warning' ? "#FFB74D" : "#4FC3F7"} 
+                            color={alertModal.type === 'error' ? "#FF5252" : alertModal.type === 'warning' ? "#FFB74D" : "#00E5FF"} 
                         />
                         <Text style={styles.modalTitle}>{alertModal.title}</Text>
                         <Text style={styles.modalMessage}>{alertModal.message}</Text>
@@ -374,7 +488,7 @@ export default function ParachuteActivityScreen() {
                     <View style={styles.titleSection}>
                         <Text testID="physicsProfileHeader" style={[styles.recordingTag, { color: currentTheme.textColor }]}>Live Physics Profile</Text>
                         <Text style={[styles.activityName, { color: currentTheme.textColor }]}>{getPhaseLabel()}</Text>
-                        <Text style={[styles.phaseIndicator, isDarkMode && { color: '#4FC3F7' }]}>Trial Run Iteration {trial} of 3</Text>
+                        <Text style={[styles.phaseIndicator, isDarkMode && { color: '#00E5FF' }]}>Trial Run Iteration {trial} of 3</Text>
                     </View>
 
                     <View style={styles.dropdownContainer}>
@@ -391,51 +505,91 @@ export default function ParachuteActivityScreen() {
                                 <Text style={styles.sheetBodyText}>• Upward (Drag): Aerodynamic resistance against canopy area</Text>
                                 <Text style={styles.sheetBodyText}>• Net Force Matrix: Net Force = Weight – Drag Force</Text>
                                 <Text style={styles.sheetBodyText}>• Newton's Second Law: Net Force = mass × acceleration</Text>
-
-                                <Text style={styles.sheetSectionTitle}>Dynamic Analytical Steps</Text>
-                                <Text style={styles.sheetBodyText}><Text style={styles.bold}>Step 1:</Text> Log elevation boundaries (Drop Height: distance fallen).</Text>
-                                <Text style={styles.sheetBodyText}><Text style={styles.bold}>Step 2:</Text> Isolate drop time intervals cleanly using terminal stopwatch metrics.</Text>
-                                <Text style={styles.sheetBodyText}><Text style={styles.bold}>Step 3:</Text> Final Velocity = distance / time (Assuming v₀ = 0 m/s).</Text>
-                                <Text style={styles.sheetBodyText_Italic}>   Example: 1.0 m / 0.5 s = 2.0 m/s</Text>
-                                <Text style={styles.sheetBodyText}><Text style={styles.bold}>Step 4:</Text> Acceleration = Final Velocity / time.</Text>
-                                <Text style={styles.sheetBodyText_Italic}>   Example: 2.0 m/s / 0.5 s = 4.0 m/s²</Text>
-                                <Text style={styles.sheetBodyText}><Text style={styles.bold}>Step 5:</Text> Net Force = mass × acceleration.</Text>
-                                <Text style={styles.sheetBodyText_Italic}>   Example (0.20 kg mass): 0.20 × 4.0 = 0.8 N</Text>
-                                <Text style={styles.sheetBodyText}><Text style={styles.bold}>Step 6:</Text> Drag Force = Weight – Net Force.</Text>
-                                <Text style={styles.sheetBodyText_Italic}>   Weight: 0.20 × 9.8 = 1.96 N → Drag: 1.96 – 0.8 = 1.16 N</Text>
-
-                                <Text style={styles.sheetSectionTitle}>G-Force Real-Time Matrix</Text>
-                                <Text style={styles.sheetBodyText}>• No Bounce Impact: Δv = v_impact</Text>
-                                <Text style={styles.sheetBodyText_Italic}>   Formula: g-force = (Δv / t_contact) ÷ 9.8</Text>
-                                <Text style={styles.sheetBodyText}>• Rebound Bounce Impact: Δv = v_down + v_up</Text>
-                                <Text style={styles.sheetBodyText_Italic}>   Upward Velocity (v_up) = g × t_up (time to max bounce height)</Text>
-
-                                <Text style={styles.sheetSectionTitle}>Injury Shock Range Reference Data</Text>
-                                <View style={styles.staticRefTable}>
-                                    <Text style={styles.tableRowData}><Text style={styles.bold}>1–5 g:</Text> Standing up, standard elevators [No Injury Risks]</Text>
-                                    <Text style={styles.tableRowData}><Text style={styles.bold}>5–10 g:</Text> Running falls, vehicle breaking [Bruises/Strains]</Text>
-                                    <Text style={styles.tableRowData}><Text style={styles.bold}>10–30 g:</Text> Vehicle crashes with seatbelts [Bones/Concussions]</Text>
-                                    <Text style={styles.tableRowData}><Text style={styles.bold}>30–50 g:</Text> High surface falls [Severe Trauma Risks]</Text>
-                                    <Text style={styles.tableRowData}><Text style={styles.bold}>50+ g:</Text> Sudden un-cushioned shifts [Life Threatening Constraints]</Text>
-                                </View>
-
-                                <Text style={styles.sheetSectionTitle}>Curriculum Target Focus Guidelines</Text>
-                                <Text style={styles.sheetBodyText}>• Primary Focus: Trace structural drop intervals and evaluate final speeds.</Text>
-                                <Text style={styles.sheetBodyText}>• High School Focus: Compute drag metrics, net force models, and g-force variables.</Text>
                             </ScrollView>
                         )}
                     </View>
 
+                    {/* ─── Integrated Video & Camera Display Console Wrapper ─── */}
                     <View style={styles.displayConsoleWrapper}>
                         <View style={styles.telemetrySubPanel}>
                             <Text style={styles.telemetryReadoutLabel}>Live Acceleration Vector: <Text style={styles.telemetryValue}>{liveG.toFixed(2)} g</Text></Text>
-                            <Text style={styles.telemetryReadoutLabel}>Peak Contact Strain Logged: <Text style={styles.telemetryValue}>{maxGForce.toFixed(2)} g</Text></Text>
+                            <Text style={styles.telemetryReadoutLabel}>Peak Strain: <Text style={styles.telemetryValue}>{maxGForce.toFixed(2)} g</Text></Text>
+                        </View>
+
+                        <View style={styles.mediaContainerBox}>
+                            {sessionState === 'idle' && (
+                                <View style={styles.viewfinderPlaceholder}>
+                                    <CameraView style={StyleSheet.absoluteFillObject} mode="video" facing="back" />
+                                    <View style={styles.viewfinderOverlay}>
+                                        <Ionicons name="camera-outline" size={28} color="#00E5FF" />
+                                        <Text style={styles.viewfinderOverlayText}>Camera Pipeline Ready</Text>
+                                    </View>
+                                </View>
+                            )}
+
+                            {sessionState === 'falling' && (
+                                <View style={styles.viewfinderPlaceholder}>
+                                    <CameraView ref={cameraRef} style={StyleSheet.absoluteFillObject} mode="video" facing="back" />
+                                    <View style={[styles.viewfinderOverlay, { backgroundColor: 'rgba(255,82,82,0.15)' }]}>
+                                        <View style={styles.recordingDot} />
+                                        <Text style={[styles.viewfinderOverlayText, { color: '#FF5252' }]}>RECORDING FLIGHT DATA</Text>
+                                    </View>
+                                </View>
+                            )}
+
+                            {sessionState === 'reviewing' && (
+                                <View style={styles.viewfinderPlaceholder}>
+                                    {videoUri ? (
+                                        <VideoView
+                                            player={player}
+                                            style={StyleSheet.absoluteFillObject}
+                                            contentFit="contain"
+                                        />
+                                    ) : (
+                                        <View style={styles.videoLoadingState}>
+                                            <ActivityIndicator size="small" color="#00E5FF" />
+                                            <Text style={styles.viewfinderOverlayText}>Processing Capture Clip...</Text>
+                                        </View>
+                                    )}
+                                </View>
+                            )}
+
+                            {sessionState === 'impact_captured' && (
+                                <View style={styles.reviewCompleteBanner}>
+                                    <Ionicons name="checkmark-done-circle" size={48} color="#00E5FF" />
+                                    <Text style={styles.successCardHeadline}>Time Vector Confirmed</Text>
+                                </View>
+                            )}
                         </View>
                         
                         <View style={styles.timeMainTickerBox}>
-                            <Text style={styles.timerLabelText}>Calculated Air Time Profile:</Text>
-                            <Text style={styles.timerBigDigits}>{dropTime.toFixed(2).replace('.', ',')} <Text style={styles.secSuffix}>SEC</Text></Text>
+                            <Text style={styles.timerLabelText}>
+                                {sessionState === 'reviewing' ? "Reviewing Frame Timeline:" : "Calculated Air Time Profile:"}
+                            </Text>
+                            <Text style={[styles.timerBigDigits, sessionState === 'falling' && { color: '#FF5252' }]}>
+                                {(sessionState === 'reviewing' ? reviewTime : dropTime).toFixed(2).replace('.', ',')} <Text style={styles.secSuffix}>SEC</Text>
+                            </Text>
                         </View>
+
+                        {/* Frame-by-frame controls */}
+                        {sessionState === 'reviewing' && (
+                            <View style={styles.scrubberControlBox}>
+                                <TouchableOpacity style={styles.stepButton} onPress={() => stepFrame('backward')}>
+                                    <Ionicons name="play-back" size={20} color="#000" />
+                                    <Text style={styles.stepButtonText}>-1 Frame</Text>
+                                </TouchableOpacity>
+                                
+                                <TouchableOpacity style={[styles.stepButton, styles.confirmFrameBtn]} onPress={saveLandingFrameVideo}>
+                                    <Ionicons name="save-outline" size={18} color="#000" />
+                                    <Text style={styles.confirmFrameBtnText}>Confirm Frame</Text>
+                                </TouchableOpacity>
+
+                                <TouchableOpacity style={styles.stepButton} onPress={() => stepFrame('forward')}>
+                                    <Text style={styles.stepButtonText}>+1 Frame</Text>
+                                    <Ionicons name="play-forward" size={20} color="#000" />
+                                </TouchableOpacity>
+                            </View>
+                        )}
                     </View>
 
                     <View style={styles.controlInteractionBlock}>
@@ -453,11 +607,19 @@ export default function ParachuteActivityScreen() {
                             </TouchableOpacity>
                         )}
 
+                        {sessionState === 'reviewing' && (
+                            <View style={styles.captureSuccessSplashCard}>
+                                <Ionicons name="eye-outline" size={32} color="#00E5FF" />
+                                <Text style={styles.successCardHeadline}>Isolate Landing Frame</Text>
+                                <Text style={styles.successSubtext}>Scrub back/forth to frame point where parachute canvas settles on target boundary floor.</Text>
+                            </View>
+                        )}
+
                         {sessionState === 'impact_captured' && (
                             <View style={styles.captureSuccessSplashCard}>
-                                <Ionicons name="checkmark-done-circle" size={40} color="#00E5FF" />
-                                <Text style={styles.successCardHeadline}>Flight Mechanics Logged Successfully</Text>
-                                <Text style={styles.successSubtext}>Instruct team to compile values into localized lab document.</Text>
+                                <Ionicons name="cloud-upload-outline" size={32} color="#B2FF59" />
+                                <Text style={styles.successCardHeadline}>Run Architecture Complete</Text>
+                                <Text style={styles.successSubtext}>Proceed to capture parameters into final team logging array.</Text>
                             </View>
                         )}
                     </View>
@@ -497,7 +659,6 @@ export default function ParachuteActivityScreen() {
     );
 }
 
-// ─── Styles ───────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
     background: { flex: 1 },
     safeArea: { flex: 1 },
@@ -520,44 +681,55 @@ const styles = StyleSheet.create({
     progressFill: { height: '100%', backgroundColor: '#4FC3F7', borderRadius: 20 },
     progressText: { position: 'absolute', width: '100%', textAlign: 'center', fontFamily: 'BalsamiqSans_400Regular', fontSize: 13 },
     
-    containerContent: { flex: 1, paddingTop: 125, alignItems: 'center', paddingHorizontal: 20, paddingBottom: 110, justifyContent: 'space-between' },
+    containerContent: { flex: 1, paddingTop: 115, alignItems: 'center', paddingHorizontal: 20, paddingBottom: 100, justifyContent: 'space-between' },
     titleSection: { alignItems: 'center', marginTop: 5 },
     recordingTag: { fontFamily: 'BalsamiqSans_700Bold', fontSize: 22 },
     activityName: { fontFamily: 'BalsamiqSans_400Regular', fontSize: 14, fontStyle: 'italic', marginTop: 2, textAlign: 'center' },
     phaseIndicator: { fontFamily: 'BalsamiqSans_700Bold', fontSize: 15, color: '#007AFF', marginTop: 4, textAlign: 'center' },
     
-    dropdownContainer: { width: '100%', backgroundColor: '#FFF', borderRadius: 12, borderWidth: 1.5, borderColor: '#000', overflow: 'hidden', marginVertical: 8, maxHeight: 180 },
+    dropdownContainer: { width: '100%', backgroundColor: '#FFF', borderRadius: 12, borderWidth: 1.5, borderColor: '#000', overflow: 'hidden', marginVertical: 4, maxHeight: 120 },
     formulaDropdownHeader: { flexDirection: 'row', alignItems: 'center', padding: 10, backgroundColor: '#E0E0E0' },
     dropdownHeaderText: { fontFamily: 'BalsamiqSans_700Bold', fontSize: 12, color: '#000', flex: 1 },
     chevronIcon: { marginLeft: 5 },
     formulaScrollArea: { padding: 10, backgroundColor: '#FFF' },
     sheetSectionTitle: { fontFamily: 'BalsamiqSans_700Bold', fontSize: 12, color: '#007AFF', marginTop: 8, marginBottom: 4, textDecorationLine: 'underline' },
     sheetBodyText: { fontFamily: 'BalsamiqSans_400Regular', fontSize: 11, color: '#222', marginBottom: 2, lineHeight: 14 },
-    sheetBodyText_Italic: { fontFamily: 'BalsamiqSans_400Regular', fontSize: 11, color: '#666', fontStyle: 'italic', marginBottom: 2, paddingLeft: 6 },
-    staticRefTable: { padding: 5, backgroundColor: '#F5F5F5', borderRadius: 6, marginVertical: 4 },
-    tableRowData: { fontFamily: 'BalsamiqSans_400Regular', fontSize: 10, color: '#333', marginBottom: 2 },
-    bold: { fontFamily: 'BalsamiqSans_700Bold' },
 
-    displayConsoleWrapper: { width: '100%', backgroundColor: 'rgba(255,255,255,0.85)', padding: 14, borderRadius: 20, borderWidth: 1.5, borderColor: '#000', alignItems: 'center' },
-    telemetrySubPanel: { width: '100%', borderBottomWidth: 1, borderBottomColor: '#DDD', paddingBottom: 8, marginBottom: 8, flexDirection: 'row', justifyContent: 'space-between' },
+    displayConsoleWrapper: { width: '100%', backgroundColor: 'rgba(255,255,255,0.95)', padding: 12, borderRadius: 20, borderWidth: 1.5, borderColor: '#000', alignItems: 'center' },
+    telemetrySubPanel: { width: '100%', borderBottomWidth: 1, borderBottomColor: '#DDD', paddingBottom: 6, marginBottom: 6, flexDirection: 'row', justifyContent: 'space-between' },
     telemetryReadoutLabel: { fontFamily: 'BalsamiqSans_400Regular', fontSize: 11, color: '#444' },
     telemetryValue: { fontFamily: 'BalsamiqSans_700Bold', color: '#FF5252' },
-    timeMainTickerBox: { alignItems: 'center', marginTop: 4 },
-    timerLabelText: { fontFamily: 'BalsamiqSans_400Regular', fontSize: 14, color: '#000' },
-    timerBigDigits: { fontFamily: 'BalsamiqSans_700Bold', fontSize: 36, color: '#000', marginTop: 2 },
-    secSuffix: { fontSize: 18, fontFamily: 'BalsamiqSans_400Regular' },
+    
+    mediaContainerBox: { width: '100%', height: 160, borderRadius: 12, backgroundColor: '#000', overflow: 'hidden', borderWidth: 1, borderColor: '#333', justifyContent: 'center', alignItems: 'center' },
+    viewfinderPlaceholder: { width: '100%', height: '100%', justifyContent: 'center', alignItems: 'center' },
+    viewfinderOverlay: { position: 'absolute', top: 10, left: 10, backgroundColor: 'rgba(0,0,0,0.6)', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 6, flexDirection: 'row', alignItems: 'center' },
+    viewfinderOverlayText: { fontFamily: 'BalsamiqSans_700Bold', fontSize: 11, color: '#00E5FF', marginLeft: 6 },
+    recordingDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#FF5252', marginRight: 4 },
+    videoLoadingState: { alignItems: 'center', justifyContent: 'center' },
+    reviewCompleteBanner: { alignItems: 'center', justifyContent: 'center' },
 
-    controlInteractionBlock: { height: 160, justifyContent: 'center', alignItems: 'center', width: '100%' },
-    primaryCircleLaunchBtn: { width: 130, height: 130, borderRadius: 65, backgroundColor: '#B2FF59', borderWidth: 2, borderColor: '#000', justifyContent: 'center', alignItems: 'center', elevation: 5, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 4 },
+    timeMainTickerBox: { alignItems: 'center', marginTop: 6 },
+    timerLabelText: { fontFamily: 'BalsamiqSans_400Regular', fontSize: 12, color: '#555' },
+    timerBigDigits: { fontFamily: 'BalsamiqSans_700Bold', fontSize: 32, color: '#000', marginTop: 1 },
+    secSuffix: { fontSize: 16, fontFamily: 'BalsamiqSans_400Regular' },
+
+    scrubberControlBox: { flexDirection: 'row', width: '100%', justifyContent: 'space-between', alignItems: 'center', marginTop: 10, paddingTop: 8, borderTopWidth: 1, borderTopColor: '#EEE' },
+    stepButton: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#E0E0E0', paddingVertical: 6, paddingHorizontal: 10, borderRadius: 8, borderWidth: 1, borderColor: '#BBB' },
+    stepButtonText: { fontFamily: 'BalsamiqSans_700Bold', fontSize: 11, marginHorizontal: 4 },
+    confirmFrameBtn: { backgroundColor: '#00E5FF', borderColor: '#000' },
+    confirmFrameBtnText: { fontFamily: 'BalsamiqSans_700Bold', fontSize: 11, marginLeft: 4 },
+
+    controlInteractionBlock: { height: 130, justifyContent: 'center', alignItems: 'center', width: '100%' },
+    primaryCircleLaunchBtn: { width: 110, height: 110, borderRadius: 55, backgroundColor: '#B2FF59', borderWidth: 2, borderColor: '#000', justifyContent: 'center', alignItems: 'center', elevation: 5, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 4 },
     activeDropCaptureStyle: { backgroundColor: '#FF5252' },
-    launchCircleText: { fontFamily: 'BalsamiqSans_700Bold', fontSize: 11, textAlign: 'center', marginTop: 6, paddingHorizontal: 10, color: '#000' },
-    captureSuccessSplashCard: { padding: 15, backgroundColor: '#FFF', borderRadius: 15, borderWidth: 1.5, borderColor: '#333', alignItems: 'center', width: '90%' },
-    successCardHeadline: { fontFamily: 'BalsamiqSans_700Bold', fontSize: 14, color: '#000', marginTop: 5 },
-    successSubtext: { fontFamily: 'BalsamiqSans_400Regular', fontSize: 11, color: '#666', textAlign: 'center', marginTop: 4 },
+    launchCircleText: { fontFamily: 'BalsamiqSans_700Bold', fontSize: 11, textAlign: 'center', marginTop: 4, paddingHorizontal: 6, color: '#000' },
+    captureSuccessSplashCard: { padding: 12, backgroundColor: '#FFF', borderRadius: 15, borderWidth: 1.5, borderColor: '#333', alignItems: 'center', width: '95%' },
+    successCardHeadline: { fontFamily: 'BalsamiqSans_700Bold', fontSize: 14, color: '#000', marginTop: 3 },
+    successSubtext: { fontFamily: 'BalsamiqSans_400Regular', fontSize: 11, color: '#666', textAlign: 'center', marginTop: 2 },
 
-    nextBtn: { backgroundColor: '#4FC3F7', width: '90%', height: 46, borderRadius: 23, justifyContent: 'center', alignItems: 'center', borderWidth: 1.5, borderColor: '#000', marginBottom: 5 },
-    nextBtnText: { fontFamily: 'BalsamiqSans_700Bold', fontSize: 16, color: '#000' },
-    bottomActionArea: { position: 'absolute', bottom: 0, backgroundColor: '#FFFFFF', height: 90, width: '100%', justifyContent: 'center', alignItems: 'center', borderTopWidth: 1, borderColor: '#EEEEEE' },
+    nextBtn: { backgroundColor: '#4FC3F7', width: '90%', height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center', borderWidth: 1.5, borderColor: '#000', marginBottom: 2 },
+    nextBtnText: { fontFamily: 'BalsamiqSans_700Bold', fontSize: 15, color: '#000' },
+    bottomActionArea: { position: 'absolute', bottom: 0, backgroundColor: '#FFFFFF', height: 80, width: '100%', justifyContent: 'center', alignItems: 'center', borderTopWidth: 1, borderColor: '#EEEEEE' },
     backButton: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#E0E0E0', paddingHorizontal: 25, paddingVertical: 8, borderRadius: 20, borderWidth: 1, borderColor: '#AAA' },
     backButtonText: { fontFamily: 'BalsamiqSans_400Regular', fontSize: 15, marginLeft: 8, color: '#000' },
 });

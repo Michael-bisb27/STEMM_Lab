@@ -13,7 +13,10 @@
       "bundleIdentifier": "com.michaelbisb27.stemmlab",
       "googleServicesFile": "./GoogleService-Info.plist",
       "infoPlist": {
-        "NSUserTrackingUsageDescription": "This identifier will be used to deliver personalized ads to you."
+        "NSUserTrackingUsageDescription": "This identifier will be used to deliver personalized ads to you.",
+        "NSCameraUsageDescription": "This app requires camera access to record parachute activities.",
+        "NSMicrophoneUsageDescription": "This app requires microphone access for video recording.",
+        "NSPhotoLibraryUsageDescription": "This app requires photo library access to play back recorded videos."
       }
     },
     "android": {
@@ -72,7 +75,21 @@
         }
       ],
       "./plugins/withNonModularHeaders",
-      "expo-tracking-transparency"
+      "expo-tracking-transparency",
+      "expo-video",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "The app accesses your photos to let you upload and review your parachute activity videos.",
+          "cameraPermission": "The app accesses your camera to record the parachute drop challenge."
+        }
+      ],
+      [
+        "expo-av",
+        {
+          "microphonePermission": "Allow STEMM Lab to access the microphone while recording video."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,
