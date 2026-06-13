@@ -4,7 +4,7 @@ import {
     useFonts,
 } from '@expo-google-fonts/balsamiq-sans';
 import { Ionicons } from '@expo/vector-icons';
-import { CameraView, useCameraPermissions } from 'expo-camera';
+import { CameraView, useCameraPermissions, useMicrophonePermissions } from 'expo-camera';
 import * as MediaLibrary from 'expo-media-library';
 import { Stack, useRouter } from 'expo-router';
 import { Accelerometer } from 'expo-sensors';
@@ -45,8 +45,8 @@ import { themes } from '../theme/theme';
 import { useTheme } from '../theme/theme_context';
 
 const { width, height } = Dimensions.get('window');
-const ACTIVITY_ID = "Qvn4OR5l7pf9pCXB2pkq"; 
-const MIN_VALID_FLIGHT_TIME_MS = 1200; 
+const ACTIVITY_ID = "Qvn4OR5l7pf9pCXB2pkq";
+const MIN_VALID_FLIGHT_TIME_MS = 1200;
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
     UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -59,34 +59,34 @@ export default function ParachuteActivityScreen() {
     const currentTheme = isDarkMode ? themes.dark : themes.light;
 
     // ─── Core Activity States ───────────────────────────────────────────
-    const [actionPhase, setActionPhase] = useState<1 | 2 | 3>(1); 
-    const [trial, setTrial] = useState<1 | 2 | 3>(1); 
+    const [actionPhase, setActionPhase] = useState<1 | 2 | 3>(1);
+    const [trial, setTrial] = useState<1 | 2 | 3>(1);
     const [sessionState, setSessionState] = useState<'idle' | 'falling' | 'reviewing' | 'impact_captured'>('idle');
     const [dropTime, setDropTime] = useState<number>(0);
     const [showFormulaSheet, setShowFormulaSheet] = useState<boolean>(false);
-    
+
     const [loading, setLoading] = useState(true);
     const [isFinishing, setIsFinishing] = useState(false);
     const [teamId, setTeamId] = useState<string | null>(null);
     const [lastAttemptId, setLastAttemptId] = useState<string | null>(null);
-
     const [maxGForce, setMaxGForce] = useState<number>(1.0);
     const [liveG, setLiveG] = useState<number>(1.0);
-    
+
     // ─── Camera & Video Review States ────────────────────────────────────
     const [cameraPermission, requestCameraPermission] = useCameraPermissions();
+    const [microphonePermission, requestMicrophonePermission] = useMicrophonePermissions();
     const [mediaLibraryPermission, requestMediaLibraryPermission] = MediaLibrary.usePermissions();
     const [videoUri, setVideoUri] = useState<string | null>(null);
+    const [videoError, setVideoError] = useState<string | null>(null);
     const [reviewTime, setReviewTime] = useState<number>(0);
-
     const [toastMessage, setToastMessage] = useState<string>('');
     const toastOpacity = useRef(new Animated.Value(0)).current;
-    
+
     const [alertModal, setAlertModal] = useState({
         visible: false,
         title: '',
         message: '',
-        type: 'info' 
+        type: 'info'
     });
 
     const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -95,7 +95,7 @@ export default function ParachuteActivityScreen() {
     const cameraRef = useRef<CameraView>(null);
     const isRecordingRef = useRef<boolean>(false);
 
-    // Instantiate modern native expo-video player interface
+    // Instantiate native expo-video player interface cleanly
     const player = useVideoPlayer(videoUri || '', (p) => {
         p.loop = false;
         p.muted = true;
@@ -112,7 +112,7 @@ export default function ParachuteActivityScreen() {
     };
 
     const showToast = (msg: string) => {
-        setToastMessage(msg); 
+        setToastMessage(msg);
         Animated.sequence([
             Animated.timing(toastOpacity, { toValue: 1, duration: 300, useNativeDriver: true }),
             Animated.delay(2500),
@@ -123,20 +123,42 @@ export default function ParachuteActivityScreen() {
     // ─── Dynamic Video Uri Swap Binding ──────────────────────────────────
     useEffect(() => {
         if (videoUri && player) {
+            setVideoError(null);
             player.replace(videoUri);
             player.currentTime = 0;
         }
     }, [videoUri, player]);
 
+    // ─── Native Player Error Observer ────────────────────────────────────
+    useEffect(() => {
+        if (!player) return;
+
+        const statusSubscription = player.addListener('statusChange', (payload) => {
+            if (!videoUri) return;
+            if (payload?.error) {
+                console.error("Actual Video Asset Error:", payload.error);
+                setVideoError(payload.error.message || "Failed to parse video file stream.");
+            } else if (payload?.status === 'readyToPlay') {
+                setVideoError(null);
+            }
+        });
+        return () => {
+            statusSubscription.remove();
+        };
+    }, [player, videoUri]);
+
+    // ─── Native Request Authorizations On Launch ─────────────────────────
     useEffect(() => {
         (async () => {
             if (!checkDetoxBypass()) {
                 await requestCameraPermission();
+                await requestMicrophonePermission();
                 await requestMediaLibraryPermission();
             }
         })();
     }, []);
 
+    // ─── Accelerometer Tracking Thread Hook ──────────────────────────────
     useEffect(() => {
         if (sessionState !== 'falling') {
             if (subscription.current) {
@@ -145,26 +167,21 @@ export default function ParachuteActivityScreen() {
             }
             return;
         }
+        Accelerometer.setUpdateInterval(50);
 
-        Accelerometer.setUpdateInterval(50); 
-        
         subscription.current = Accelerometer.addListener(data => {
             const totalG = Math.sqrt(data.x * data.x + data.y * data.y + data.z * data.z);
             setLiveG(Math.round(totalG * 100) / 100);
+            setMaxGForce(prevMax => (totalG > prevMax ? totalG : prevMax));
 
-            if (totalG > maxGForce) {
-                setMaxGForce(totalG);
-            }
-            
             if (totalG > 4.5) {
                 handleImpactTrigger();
             }
         });
-
         return () => {
             if (subscription.current) subscription.current.remove();
         };
-    }, [sessionState, maxGForce]);
+    }, [sessionState]);
 
     useEffect(() => {
         const fetchSessionMetadata = async () => {
@@ -175,7 +192,6 @@ export default function ParachuteActivityScreen() {
                     setLoading(false);
                     return;
                 }
-
                 const auth = getAuth();
                 const user = auth.currentUser;
                 if (user) {
@@ -183,7 +199,6 @@ export default function ParachuteActivityScreen() {
                     if (studentDoc.exists()) {
                         const tId = studentDoc.data().teamID;
                         setTeamId(tId);
-
                         const qAttempt = query(
                             collection(db_cloud, "FC_Attempt"),
                             where("TeamID", "==", tId),
@@ -208,11 +223,11 @@ export default function ParachuteActivityScreen() {
 
     // ─── Recording Control Operations ──────────────────────────────────
     const startDropTracking = async () => {
-        if (!checkDetoxBypass() && (!cameraPermission?.granted || !mediaLibraryPermission?.granted)) {
+        if (!checkDetoxBypass() && (!cameraPermission?.granted || !microphonePermission?.granted || !mediaLibraryPermission?.granted)) {
             setAlertModal({
                 visible: true,
                 title: "Permissions Required",
-                message: "Camera and Storage system clearance metrics are required to accurately map drops.",
+                message: "Camera, Microphone, and Library clearance metrics are required to record video drop runs.",
                 type: 'warning'
             });
             return;
@@ -223,36 +238,44 @@ export default function ParachuteActivityScreen() {
         setDropTime(0);
         setReviewTime(0);
         setVideoUri(null);
+        setVideoError(null);
         setMaxGForce(1.0);
         startTimestamp.current = Date.now();
-        
+
         timerRef.current = setInterval(() => {
             setDropTime((Date.now() - startTimestamp.current) / 1000);
         }, 10);
 
-        if (cameraRef.current) {
-            try {
-                isRecordingRef.current = true;
-                cameraRef.current.recordAsync({
-                    maxDuration: 15,
-                }).then((file) => {
-                    if (file?.uri) {
-                        setVideoUri(file.uri);
-                    }
-                    isRecordingRef.current = false;
-                }).catch(err => {
-                    console.error("Recording processing drop caught:", err);
-                    isRecordingRef.current = false;
-                });
-            } catch (err) {
-                console.error("Failed initialization sync on camera pipeline:", err);
+        // ─── FIX: Delay recordAsync so the single persistent CameraView
+        //          has time to fully initialize its AVCaptureSession before
+        //          we call record. Without this, the session may not yet be
+        //          active even though the ref is already attached.
+        setTimeout(() => {
+            if (cameraRef.current) {
+                try {
+                    isRecordingRef.current = true;
+                    cameraRef.current.recordAsync({
+                        maxDuration: 15,
+                    }).then((file) => {
+                        if (file?.uri) {
+                            setVideoUri(file.uri);
+                        }
+                        isRecordingRef.current = false;
+                    }).catch(err => {
+                        console.error("Recording system process exception:", err);
+                        setVideoError(err?.message || "Failed to compile device video record.");
+                        isRecordingRef.current = false;
+                    });
+                } catch (err) {
+                    console.error("Failed initialization sync on camera pipeline:", err);
+                }
             }
-        }
+        }, 350); // 350ms gives AVCaptureSession time to warm up
     };
 
     const handleImpactTrigger = async () => {
         if (timerRef.current) clearInterval(timerRef.current);
-        
+
         const airtimeCalculatedMs = Date.now() - startTimestamp.current;
         if (airtimeCalculatedMs < MIN_VALID_FLIGHT_TIME_MS) {
             if (cameraRef.current && isRecordingRef.current) {
@@ -261,7 +284,7 @@ export default function ParachuteActivityScreen() {
             setSessionState('idle');
             setDropTime(0);
             setMaxGForce(1.0);
-            
+
             setAlertModal({
                 visible: true,
                 title: "Invalid Flight Time Detected",
@@ -272,7 +295,7 @@ export default function ParachuteActivityScreen() {
         }
 
         LayoutAnimation.configureNext(LayoutAnimation.Presets.spring);
-        
+
         if (cameraRef.current && isRecordingRef.current) {
             try {
                 cameraRef.current.stopRecording();
@@ -280,7 +303,7 @@ export default function ParachuteActivityScreen() {
                 console.error("Error stopping video stream:", e);
             }
         }
-        
+
         setSessionState('reviewing');
         setReviewTime(0);
         setDropTime(0);
@@ -289,23 +312,22 @@ export default function ParachuteActivityScreen() {
 
     // ─── Frame Step Systems ─────────────────────────────────────────────
     const stepFrame = (direction: 'forward' | 'backward') => {
-        if (player) {
-            // ~33ms slice represents an exact single-frame segment shift for 30 FPS video
-            const FRAME_TIME_SEC = 0.033; 
+        if (player && !videoError) {
+            const FRAME_TIME_SEC = 0.033;
             const currentPos = player.currentTime;
-            
-            const newPos = direction === 'forward' 
-                ? currentPos + FRAME_TIME_SEC 
+
+            const newPos = direction === 'forward'
+                ? currentPos + FRAME_TIME_SEC
                 : Math.max(0, currentPos - FRAME_TIME_SEC);
-            
-            player.currentTime = newPos; // Synchronous native call updates UI immediately
+
+            player.currentTime = newPos;
             setReviewTime(newPos);
-            setDropTime(newPos); // Keeps the on-screen timer perfectly synced with manual step frames
+            setDropTime(newPos);
         }
     };
 
     const saveLandingFrameVideo = async () => {
-        if (!checkDetoxBypass() && videoUri) {
+        if (!checkDetoxBypass() && videoUri && !videoError) {
             try {
                 await MediaLibrary.saveToLibraryAsync(videoUri);
             } catch (err) {
@@ -313,7 +335,6 @@ export default function ParachuteActivityScreen() {
                 showToast("Hardware caching issue encountered saving video.");
             }
         }
-
         try {
             parachuteOps.insertTrial({
                 attempt_id: lastAttemptId || "UNKNOWN",
@@ -326,21 +347,18 @@ export default function ParachuteActivityScreen() {
         } catch (error) {
             console.error("Local caching fallback exception:", error);
         }
-
         setAlertModal({
             visible: true,
             title: "Data Sequence Saved",
             message: "The current trial video has been cached locally. ⚠️ This has to be submitted in your final evaluation.",
             type: 'info'
         });
-
         setSessionState('impact_captured');
     };
 
     const commitSessionResults = async () => {
         if (isFinishing) return;
         setIsFinishing(true);
-
         try {
             if (checkDetoxBypass()) {
                 showToast("Mock Data Packet Transmitted!");
@@ -356,18 +374,16 @@ export default function ParachuteActivityScreen() {
                 }, 1000);
                 return;
             }
-
             await addDoc(collection(db_cloud, "FC_Scoring_Result"), {
                 AttemptID: lastAttemptId || "UNKNOWN",
                 accuracyScore: 0,
                 finishedAt: Timestamp.now(),
                 pointsEarned: 100,
                 workScore: 0,
-                teacherID: "" 
+                teacherID: ""
             });
-
             showToast("Data Packet Transmitted!");
-            
+
             setTimeout(() => {
                 router.push({
                     pathname: '/activity_finish',
@@ -398,6 +414,7 @@ export default function ParachuteActivityScreen() {
             setDropTime(0);
             setReviewTime(0);
             setVideoUri(null);
+            setVideoError(null);
             showToast(`Advanced to Run Iteration #${trial + 1}`);
         } else if (actionPhase < 3) {
             setAlertModal({
@@ -412,6 +429,7 @@ export default function ParachuteActivityScreen() {
             setDropTime(0);
             setReviewTime(0);
             setVideoUri(null);
+            setVideoError(null);
         } else {
             commitSessionResults();
         }
@@ -439,7 +457,7 @@ export default function ParachuteActivityScreen() {
     return (
         <ImageBackground source={currentTheme.backgroundImage} style={styles.background}>
             <Stack.Screen options={{ headerShown: false }} />
-            
+
             {toastMessage ? (
                 <Animated.View style={[styles.toastContainer, { opacity: toastOpacity }]}>
                     <Ionicons name="flash-sharp" size={18} color="#00E5FF" />
@@ -450,15 +468,14 @@ export default function ParachuteActivityScreen() {
             <Modal transparent visible={alertModal.visible} animationType="fade" onRequestClose={() => setAlertModal({ ...alertModal, visible: false })}>
                 <View style={styles.modalOverlay}>
                     <View style={styles.modalBox}>
-                        <Ionicons 
-                            name={alertModal.type === 'error' ? "close-circle" : alertModal.type === 'warning' ? "warning" : "information-circle-sharp"} 
-                            size={56} 
-                            color={alertModal.type === 'error' ? "#FF5252" : alertModal.type === 'warning' ? "#FFB74D" : "#00E5FF"} 
+                        <Ionicons
+                            name={alertModal.type === 'error' ? "close-circle" : alertModal.type === 'warning' ? "warning" : "information-circle-sharp"}
+                            size={56}
+                            color={alertModal.type === 'error' ? "#FF5252" : alertModal.type === 'warning' ? "#FFB74D" : "#00E5FF"}
                         />
                         <Text style={styles.modalTitle}>{alertModal.title}</Text>
                         <Text style={styles.modalMessage}>{alertModal.message}</Text>
-                        
-                        <TouchableOpacity 
+                        <TouchableOpacity
                             style={[styles.modalButton, { backgroundColor: alertModal.type === 'error' ? "#FF5252" : "#000000" }]}
                             onPress={() => setAlertModal({ ...alertModal, visible: false })}
                             activeOpacity={0.8}
@@ -484,7 +501,7 @@ export default function ParachuteActivityScreen() {
 
             <SafeAreaView style={styles.safeArea} edges={['left', 'right']}>
                 <View style={styles.containerContent}>
-                    
+
                     <View style={styles.titleSection}>
                         <Text testID="physicsProfileHeader" style={[styles.recordingTag, { color: currentTheme.textColor }]}>Live Physics Profile</Text>
                         <Text style={[styles.activityName, { color: currentTheme.textColor }]}>{getPhaseLabel()}</Text>
@@ -497,7 +514,6 @@ export default function ParachuteActivityScreen() {
                             <Text style={styles.dropdownHeaderText}> View Reference Formulas & Science Specs</Text>
                             <Ionicons name={showFormulaSheet ? "chevron-up" : "chevron-down"} size={18} color="#000" style={styles.chevronIcon} />
                         </TouchableOpacity>
-
                         {showFormulaSheet && (
                             <ScrollView nestedScrollEnabled={true} style={styles.formulaScrollArea} showsVerticalScrollIndicator={true}>
                                 <Text style={styles.sheetSectionTitle}>Forces Acting on Payload</Text>
@@ -516,52 +532,75 @@ export default function ParachuteActivityScreen() {
                             <Text style={styles.telemetryReadoutLabel}>Peak Strain: <Text style={styles.telemetryValue}>{maxGForce.toFixed(2)} g</Text></Text>
                         </View>
 
+                        {/* ─── FIX: Single persistent CameraView + layered overlays ─── 
+                            Previously two separate CameraView instances were conditionally
+                            swapped between idle/falling. React would unmount+remount the
+                            camera, and recordAsync() was called before the new session
+                            was ready, causing FigCaptureSourceRemote -17281 errors.
+                            Now one CameraView stays mounted at all times; overlays and
+                            the VideoView are layered on top via absolute positioning.   */}
                         <View style={styles.mediaContainerBox}>
+
+                            {/* Always-mounted camera with ref — session stays warm */}
+                            <CameraView
+                                ref={cameraRef}
+                                style={StyleSheet.absoluteFillObject}
+                                mode="video"
+                                facing="back"
+                                mute={true}
+                            />
+
+                            {/* VideoView renders on top during review (covers camera) */}
+                            {sessionState === 'reviewing' && videoUri && !videoError && (
+                                <VideoView
+                                    player={player}
+                                    style={StyleSheet.absoluteFillObject}
+                                    contentFit="contain"
+                                />
+                            )}
+
+                            {/* Video error overlay */}
+                            {sessionState === 'reviewing' && videoError && (
+                                <View style={[StyleSheet.absoluteFillObject, styles.videoErrorStateContainer]}>
+                                    <Ionicons name="alert-circle-outline" size={32} color="#FF5252" />
+                                    <Text style={styles.videoErrorText}>Playback Stream Missing</Text>
+                                    <Text style={styles.videoErrorSubText}>{videoError}</Text>
+                                </View>
+                            )}
+
+                            {/* Processing spinner while video URI resolves */}
+                            {sessionState === 'reviewing' && !videoUri && !videoError && (
+                                <View style={[StyleSheet.absoluteFillObject, styles.videoLoadingState]}>
+                                    <ActivityIndicator size="small" color="#00E5FF" />
+                                    <Text style={styles.viewfinderOverlayText}>Processing Capture Clip...</Text>
+                                </View>
+                            )}
+
+                            {/* Idle badge overlay */}
                             {sessionState === 'idle' && (
-                                <View style={styles.viewfinderPlaceholder}>
-                                    <CameraView style={StyleSheet.absoluteFillObject} mode="video" facing="back" />
-                                    <View style={styles.viewfinderOverlay}>
-                                        <Ionicons name="camera-outline" size={28} color="#00E5FF" />
-                                        <Text style={styles.viewfinderOverlayText}>Camera Pipeline Ready</Text>
-                                    </View>
+                                <View style={styles.viewfinderOverlay}>
+                                    <Ionicons name="camera-outline" size={28} color="#00E5FF" />
+                                    <Text style={styles.viewfinderOverlayText}>Camera Pipeline Ready</Text>
                                 </View>
                             )}
 
+                            {/* Recording badge overlay */}
                             {sessionState === 'falling' && (
-                                <View style={styles.viewfinderPlaceholder}>
-                                    <CameraView ref={cameraRef} style={StyleSheet.absoluteFillObject} mode="video" facing="back" />
-                                    <View style={[styles.viewfinderOverlay, { backgroundColor: 'rgba(255,82,82,0.15)' }]}>
-                                        <View style={styles.recordingDot} />
-                                        <Text style={[styles.viewfinderOverlayText, { color: '#FF5252' }]}>RECORDING FLIGHT DATA</Text>
-                                    </View>
+                                <View style={[styles.viewfinderOverlay, { backgroundColor: 'rgba(255,82,82,0.15)' }]}>
+                                    <View style={styles.recordingDot} />
+                                    <Text style={[styles.viewfinderOverlayText, { color: '#FF5252' }]}>RECORDING FLIGHT DATA</Text>
                                 </View>
                             )}
 
-                            {sessionState === 'reviewing' && (
-                                <View style={styles.viewfinderPlaceholder}>
-                                    {videoUri ? (
-                                        <VideoView
-                                            player={player}
-                                            style={StyleSheet.absoluteFillObject}
-                                            contentFit="contain"
-                                        />
-                                    ) : (
-                                        <View style={styles.videoLoadingState}>
-                                            <ActivityIndicator size="small" color="#00E5FF" />
-                                            <Text style={styles.viewfinderOverlayText}>Processing Capture Clip...</Text>
-                                        </View>
-                                    )}
-                                </View>
-                            )}
-
+                            {/* Impact captured success overlay */}
                             {sessionState === 'impact_captured' && (
-                                <View style={styles.reviewCompleteBanner}>
+                                <View style={[StyleSheet.absoluteFillObject, styles.reviewCompleteBanner]}>
                                     <Ionicons name="checkmark-done-circle" size={48} color="#00E5FF" />
                                     <Text style={styles.successCardHeadline}>Time Vector Confirmed</Text>
                                 </View>
                             )}
                         </View>
-                        
+
                         <View style={styles.timeMainTickerBox}>
                             <Text style={styles.timerLabelText}>
                                 {sessionState === 'reviewing' ? "Reviewing Frame Timeline:" : "Calculated Air Time Profile:"}
@@ -574,17 +613,29 @@ export default function ParachuteActivityScreen() {
                         {/* Frame-by-frame controls */}
                         {sessionState === 'reviewing' && (
                             <View style={styles.scrubberControlBox}>
-                                <TouchableOpacity style={styles.stepButton} onPress={() => stepFrame('backward')}>
+                                <TouchableOpacity
+                                    style={[styles.stepButton, videoError && { opacity: 0.4 }]}
+                                    onPress={() => stepFrame('backward')}
+                                    disabled={!!videoError}
+                                >
                                     <Ionicons name="play-back" size={20} color="#000" />
                                     <Text style={styles.stepButtonText}>-1 Frame</Text>
                                 </TouchableOpacity>
-                                
-                                <TouchableOpacity style={[styles.stepButton, styles.confirmFrameBtn]} onPress={saveLandingFrameVideo}>
+
+                                <TouchableOpacity
+                                    style={[styles.stepButton, styles.confirmFrameBtn, videoError && { backgroundColor: '#777', borderColor: '#444' }]}
+                                    onPress={saveLandingFrameVideo}
+                                    disabled={!!videoError}
+                                >
                                     <Ionicons name="save-outline" size={18} color="#000" />
                                     <Text style={styles.confirmFrameBtnText}>Confirm Frame</Text>
                                 </TouchableOpacity>
 
-                                <TouchableOpacity style={styles.stepButton} onPress={() => stepFrame('forward')}>
+                                <TouchableOpacity
+                                    style={[styles.stepButton, videoError && { opacity: 0.4 }]}
+                                    onPress={() => stepFrame('forward')}
+                                    disabled={!!videoError}
+                                >
                                     <Text style={styles.stepButtonText}>+1 Frame</Text>
                                     <Ionicons name="play-forward" size={20} color="#000" />
                                 </TouchableOpacity>
@@ -599,22 +650,29 @@ export default function ParachuteActivityScreen() {
                                 <Text style={styles.launchCircleText}>RELEASE PAYLOAD</Text>
                             </TouchableOpacity>
                         )}
-
                         {sessionState === 'falling' && (
                             <TouchableOpacity activeOpacity={0.8} style={[styles.primaryCircleLaunchBtn, styles.activeDropCaptureStyle]} onPress={handleImpactTrigger}>
                                 <Ionicons name="disc-outline" size={32} color="#FFF" />
                                 <Text style={[styles.launchCircleText, { color: '#FFF' }]}>CAPTURE IMPACT</Text>
                             </TouchableOpacity>
                         )}
-
                         {sessionState === 'reviewing' && (
                             <View style={styles.captureSuccessSplashCard}>
-                                <Ionicons name="eye-outline" size={32} color="#00E5FF" />
-                                <Text style={styles.successCardHeadline}>Isolate Landing Frame</Text>
-                                <Text style={styles.successSubtext}>Scrub back/forth to frame point where parachute canvas settles on target boundary floor.</Text>
+                                <Ionicons
+                                    name={videoError ? "alert-circle" : "eye-outline"}
+                                    size={32}
+                                    color={videoError ? "#FF5252" : "#00E5FF"}
+                                />
+                                <Text style={styles.successCardHeadline}>
+                                    {videoError ? "Playback Fallback Mode" : "Isolate Landing Frame"}
+                                </Text>
+                                <Text style={styles.successSubtext}>
+                                    {videoError
+                                        ? "The app secured data metrics, but video streams are unreadable on this device framework. Use telemetry timers to advance parameters."
+                                        : "Scrub back/forth to frame point where parachute canvas settles on target boundary floor."}
+                                </Text>
                             </View>
                         )}
-
                         {sessionState === 'impact_captured' && (
                             <View style={styles.captureSuccessSplashCard}>
                                 <Ionicons name="cloud-upload-outline" size={32} color="#B2FF59" />
@@ -624,25 +682,28 @@ export default function ParachuteActivityScreen() {
                         )}
                     </View>
 
-                    <TouchableOpacity 
-                        style={[styles.nextBtn, sessionState !== 'impact_captured' && { opacity: 0.25 }]} 
+                    <TouchableOpacity
+                        style={[styles.nextBtn, (sessionState !== 'impact_captured' && !videoError) && { opacity: 0.25 }]}
                         onPress={advanceExperimentalStep}
-                        disabled={sessionState !== 'impact_captured' || isFinishing}
+                        disabled={(sessionState !== 'impact_captured' && !videoError) || isFinishing}
                     >
                         {isFinishing ? (
                             <ActivityIndicator color="#000" />
                         ) : (
                             <Text style={styles.nextBtnText}>
-                                {actionPhase === 3 && trial === 3 ? "[SYNCHRONIZE SESSION]" : "[Log & Move to Next Run]"}
+                                {videoError
+                                    ? "[Bypass Run & Proceed]"
+                                    : actionPhase === 3 && trial === 3
+                                        ? "[SYNCHRONIZE SESSION]"
+                                        : "[Log & Move to Next Run]"}
                             </Text>
                         )}
                     </TouchableOpacity>
-
                 </View>
 
                 <View style={styles.bottomActionArea}>
-                    <TouchableOpacity 
-                        style={styles.backButton} 
+                    <TouchableOpacity
+                        style={styles.backButton}
                         onPress={() => setAlertModal({
                             visible: true,
                             title: "Session Active",
@@ -663,10 +724,10 @@ const styles = StyleSheet.create({
     background: { flex: 1 },
     safeArea: { flex: 1 },
     loader: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-    
+
     toastContainer: { position: 'absolute', top: Platform.OS === 'ios' ? 50 : 35, alignSelf: 'center', backgroundColor: '#333333', paddingHorizontal: 20, paddingVertical: 10, borderRadius: 25, flexDirection: 'row', alignItems: 'center', zIndex: 3000, elevation: 5, shadowColor: '#000', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.2 },
     toastText: { fontFamily: 'BalsamiqSans_700Bold', color: '#FFFFFF', fontSize: 13, marginLeft: 8 },
-    
+
     modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center', padding: 25 },
     modalBox: { backgroundColor: '#FFFFFF', width: '100%', borderRadius: 24, padding: 25, alignItems: 'center', borderWidth: 2, borderColor: '#000000', elevation: 10 },
     modalTitle: { fontFamily: 'BalsamiqSans_700Bold', fontSize: 19, color: '#000000', marginTop: 15, marginBottom: 10, textAlign: 'center' },
@@ -680,13 +741,13 @@ const styles = StyleSheet.create({
     progressBarBase: { flex: 1, height: 35, backgroundColor: '#F0F0F0', borderRadius: 20, overflow: 'hidden', justifyContent: 'center' },
     progressFill: { height: '100%', backgroundColor: '#4FC3F7', borderRadius: 20 },
     progressText: { position: 'absolute', width: '100%', textAlign: 'center', fontFamily: 'BalsamiqSans_400Regular', fontSize: 13 },
-    
+
     containerContent: { flex: 1, paddingTop: 115, alignItems: 'center', paddingHorizontal: 20, paddingBottom: 100, justifyContent: 'space-between' },
     titleSection: { alignItems: 'center', marginTop: 5 },
     recordingTag: { fontFamily: 'BalsamiqSans_700Bold', fontSize: 22 },
     activityName: { fontFamily: 'BalsamiqSans_400Regular', fontSize: 14, fontStyle: 'italic', marginTop: 2, textAlign: 'center' },
     phaseIndicator: { fontFamily: 'BalsamiqSans_700Bold', fontSize: 15, color: '#007AFF', marginTop: 4, textAlign: 'center' },
-    
+
     dropdownContainer: { width: '100%', backgroundColor: '#FFF', borderRadius: 12, borderWidth: 1.5, borderColor: '#000', overflow: 'hidden', marginVertical: 4, maxHeight: 120 },
     formulaDropdownHeader: { flexDirection: 'row', alignItems: 'center', padding: 10, backgroundColor: '#E0E0E0' },
     dropdownHeaderText: { fontFamily: 'BalsamiqSans_700Bold', fontSize: 12, color: '#000', flex: 1 },
@@ -699,14 +760,17 @@ const styles = StyleSheet.create({
     telemetrySubPanel: { width: '100%', borderBottomWidth: 1, borderBottomColor: '#DDD', paddingBottom: 6, marginBottom: 6, flexDirection: 'row', justifyContent: 'space-between' },
     telemetryReadoutLabel: { fontFamily: 'BalsamiqSans_400Regular', fontSize: 11, color: '#444' },
     telemetryValue: { fontFamily: 'BalsamiqSans_700Bold', color: '#FF5252' },
-    
+
     mediaContainerBox: { width: '100%', height: 160, borderRadius: 12, backgroundColor: '#000', overflow: 'hidden', borderWidth: 1, borderColor: '#333', justifyContent: 'center', alignItems: 'center' },
     viewfinderPlaceholder: { width: '100%', height: '100%', justifyContent: 'center', alignItems: 'center' },
     viewfinderOverlay: { position: 'absolute', top: 10, left: 10, backgroundColor: 'rgba(0,0,0,0.6)', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 6, flexDirection: 'row', alignItems: 'center' },
     viewfinderOverlayText: { fontFamily: 'BalsamiqSans_700Bold', fontSize: 11, color: '#00E5FF', marginLeft: 6 },
     recordingDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#FF5252', marginRight: 4 },
-    videoLoadingState: { alignItems: 'center', justifyContent: 'center' },
-    reviewCompleteBanner: { alignItems: 'center', justifyContent: 'center' },
+    videoLoadingState: { alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.85)' },
+    reviewCompleteBanner: { alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.75)' },
+    videoErrorStateContainer: { backgroundColor: '#1A1A1A', alignItems: 'center', justifyContent: 'center', padding: 15 },
+    videoErrorText: { fontFamily: 'BalsamiqSans_700Bold', fontSize: 14, color: '#FF5252', marginTop: 6 },
+    videoErrorSubText: { fontFamily: 'BalsamiqSans_400Regular', fontSize: 10, color: '#AAA', textAlign: 'center', marginTop: 2, paddingHorizontal: 10 },
 
     timeMainTickerBox: { alignItems: 'center', marginTop: 6 },
     timerLabelText: { fontFamily: 'BalsamiqSans_400Regular', fontSize: 12, color: '#555' },
@@ -729,6 +793,7 @@ const styles = StyleSheet.create({
 
     nextBtn: { backgroundColor: '#4FC3F7', width: '90%', height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center', borderWidth: 1.5, borderColor: '#000', marginBottom: 2 },
     nextBtnText: { fontFamily: 'BalsamiqSans_700Bold', fontSize: 15, color: '#000' },
+
     bottomActionArea: { position: 'absolute', bottom: 0, backgroundColor: '#FFFFFF', height: 80, width: '100%', justifyContent: 'center', alignItems: 'center', borderTopWidth: 1, borderColor: '#EEEEEE' },
     backButton: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#E0E0E0', paddingHorizontal: 25, paddingVertical: 8, borderRadius: 20, borderWidth: 1, borderColor: '#AAA' },
     backButtonText: { fontFamily: 'BalsamiqSans_400Regular', fontSize: 15, marginLeft: 8, color: '#000' },
